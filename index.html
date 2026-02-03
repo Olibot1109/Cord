@@ -2394,7 +2394,8 @@ function toggleMute() {
 function loadMessages() {
   if (!currentServer || !currentChannel || currentChannelType !== 'text') return;
 
-  elements.messagesArea.innerHTML = '';
+  const messagesArea = document.getElementById('messagesArea');
+  messagesArea.innerHTML = '';
   document.getElementById('welcomeMessage').style.display = 'none';
 
   // Remove old listeners
@@ -2404,14 +2405,16 @@ function loadMessages() {
   const messagesRef = db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`);
   messageListeners.push(messagesRef);
 
+  // Listen for new messages
   messagesRef.on('child_added', (snap) => {
     const msg = snap.val();
-    if (msg) displayMessage(snap.key, msg);
+    if (msg) addMessage(snap.key, msg);
   });
 
+  // Listen for deleted messages
   messagesRef.on('child_removed', (snap) => {
-    const el = document.getElementById(`msg-${snap.key}`);
-    if (el) el.remove();
+    const msgEl = document.getElementById(`msg-${snap.key}`);
+    if (msgEl) msgEl.remove();
   });
 
   // Typing indicator
@@ -2422,18 +2425,19 @@ function loadMessages() {
       .map(t => t.username);
 
     if (names.length > 0) {
-      elements.typingIndicator.classList.add('active');
+      document.getElementById('typingIndicator').classList.add('active');
       const text = names.length === 1 ? `${names[0]} is typing...` :
         names.length === 2 ? `${names[0]} and ${names[1]} are typing...` :
           'Several people are typing...';
       document.getElementById('typingText').textContent = text;
     } else {
-      elements.typingIndicator.classList.remove('active');
+      document.getElementById('typingIndicator').classList.remove('active');
     }
   });
 }
 
-function displayMessage(key, msg) {
+function addMessage(key, msg) {
+  const messagesArea = document.getElementById('messagesArea');
   const div = document.createElement('div');
   div.className = 'message';
   div.id = `msg-${key}`;
@@ -2449,14 +2453,14 @@ function displayMessage(key, msg) {
   if (msg.text) {
     content = `<div class="message-text">${escapeHtml(msg.text)}</div>`;
   } else if (msg.image) {
-    content = `<img src="${msg.image}" class="message-image" onclick="window.open('${msg.image}')">`;
+    content = `<img src="${msg.image}" class="message-image" onclick="window.open('${msg.image}')" style="cursor:pointer;">`;
   }
 
   const time = msg.time || new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   div.innerHTML = `
     <div class="message-avatar" style="background:${isSystem ? '#23a559' : (msg.roleColor || '#5865f2')}">
-      ${msg.avatar ? `<img src="${msg.avatar}">` : (msg.author ? msg.author.charAt(0).toUpperCase() : '?')}
+      ${msg.avatar ? `<img src="${msg.avatar}" style="width:100%;height:100%;object-fit:cover;">` : (msg.author ? msg.author.charAt(0).toUpperCase() : '?')}
     </div>
     <div class="message-content">
       <div class="message-header">
@@ -2473,9 +2477,63 @@ function displayMessage(key, msg) {
     ` : ''}
   `;
 
-  elements.messagesArea.appendChild(div);
-  elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
+  messagesArea.appendChild(div);
+  messagesArea.scrollTop = messagesArea.scrollHeight;
 }
+
+// REPLACE THIS FUNCTION - sendMessage
+function sendMessage() {
+  if (!currentServer || !currentChannel || currentChannelType !== 'text') {
+    showToast('Select a text channel first', 'error');
+    return;
+  }
+
+  const input = document.getElementById('messageInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  // Check permissions
+  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/permissions`).once('value').then(permSnap => {
+    const perms = permSnap.val() || {};
+    const sendRoles = perms.requiredRolesToSend || [];
+    
+    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && userProfile.role !== 'Admin') {
+      showToast('You do not have permission to send messages here', 'error');
+      return;
+    }
+
+    // Get role color
+    db.ref(`servers/${currentServer}/roles/${userProfile.role}`).once('value').then(roleSnap => {
+      const roleData = roleSnap.val() || {};
+      
+      const messageData = {
+        author: userProfile.username,
+        text: text,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: Date.now(),
+        avatar: userProfile.avatar || null,
+        role: userProfile.role,
+        roleColor: roleData.color || '#5865f2',
+        uid: currentUser.uid
+      };
+
+      db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`).push(messageData)
+        .then(() => {
+          input.value = '';
+          document.getElementById('charCount').textContent = '0/2000';
+          document.getElementById('charCount').className = 'char-count';
+          
+          // Clear typing indicator
+          clearTimeout(typingTimeout);
+          db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).remove();
+        })
+        .catch(err => {
+          showToast('Failed to send message: ' + err.message, 'error');
+        });
+    });
+  });
+}
+
 
 function sendMessage() {
   if (!currentServer || !currentChannel || currentChannelType !== 'text') return;
@@ -2509,35 +2567,61 @@ function sendMessage() {
   db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).remove();
 }
 
+// REPLACE THIS FUNCTION - handleImageUpload
 function handleImageUpload(e) {
   const file = e.target.files[0];
   if (!file || !currentServer || !currentChannel) return;
 
-  if (!canSendMessage()) {
-    showToast('You do not have permission to send images here', 'error');
+  if (currentChannelType !== 'text') {
+    showToast('Can only send images in text channels', 'error');
     return;
   }
 
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`).push({
-      author: userProfile.username,
-      image: evt.target.result,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      timestamp: Date.now(),
-      avatar: userProfile.avatar,
-      role: userProfile.role,
-      roleColor: getRoleColor(userProfile.role),
-      uid: currentUser.uid
-    });
-  };
-  reader.readAsDataURL(file);
+  // Check permissions
+  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/permissions`).once('value').then(permSnap => {
+    const perms = permSnap.val() || {};
+    const sendRoles = perms.requiredRolesToSend || [];
+    
+    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && userProfile.role !== 'Admin') {
+      showToast('You do not have permission to send images here', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      db.ref(`servers/${currentServer}/roles/${userProfile.role}`).once('value').then(roleSnap => {
+        const roleData = roleSnap.val() || {};
+        
+        db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`).push({
+          author: userProfile.username,
+          image: evt.target.result,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: Date.now(),
+          avatar: userProfile.avatar || null,
+          role: userProfile.role,
+          roleColor: roleData.color || '#5865f2',
+          uid: currentUser.uid
+        }).catch(err => {
+          showToast('Failed to send image: ' + err.message, 'error');
+        });
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+  
   e.target.value = '';
 }
 
+// REPLACE THIS FUNCTION - deleteMessage
 function deleteMessage(key) {
   if (!currentServer || !currentChannel) return;
-  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages/${key}`).remove();
+  
+  if (!confirm('Delete this message?')) return;
+  
+  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages/${key}`).remove()
+    .catch(err => {
+      showToast('Failed to delete message: ' + err.message, 'error');
+    });
 }
 
 function canSendMessage() {

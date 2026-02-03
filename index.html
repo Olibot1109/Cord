@@ -1,0 +1,2888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discord Clone</title>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #313338;
+  color: #dbdee1;
+  font-family: 'Inter', 'Whitney', 'Helvetica Neue', sans-serif;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Server List - Leftmost */
+.server-list {
+  width: 72px;
+  background: #1e1f22;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 8px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.server-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #313338;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  font-weight: 600;
+  font-size: 16px;
+  position: relative;
+  color: #dbdee1;
+}
+
+.server-icon:hover, .server-icon.active {
+  border-radius: 16px;
+  background: #5865f2;
+  color: white;
+}
+
+.server-icon.active::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  width: 4px;
+  height: 40px;
+  background: #dbdee1;
+  border-radius: 0 4px 4px 0;
+}
+
+.server-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.server-icon.home {
+  background: #313338;
+  color: #dbdee1;
+}
+
+.server-icon.home:hover, .server-icon.home.active {
+  background: #5865f2;
+  color: white;
+}
+
+.server-divider {
+  width: 32px;
+  height: 2px;
+  background: #35363c;
+  margin: 4px 0;
+}
+
+.add-server {
+  background: #313338 !important;
+  color: #23a559 !important;
+  font-size: 24px !important;
+}
+
+.add-server:hover {
+  background: #23a559 !important;
+  color: white !important;
+  border-radius: 16px;
+}
+
+/* Channel Sidebar */
+.channel-sidebar {
+  width: 240px;
+  background: #2b2d31;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.server-header {
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #1e1f22;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+  color: #f2f3f5;
+  transition: background 0.1s;
+}
+
+.server-header:hover { background: #35363c; }
+.dropdown-icon { font-size: 12px; color: #dbdee1; }
+
+.channels-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+}
+
+.channel-category {
+  margin-bottom: 16px;
+  padding: 0 8px;
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #949ba4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.category-header:hover { color: #dbdee1; }
+.category-header span:first-child { font-size: 10px; margin-right: 4px; }
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin: 1px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 15px;
+  color: #949ba4;
+  transition: all 0.1s;
+}
+
+.channel-item:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+
+.channel-item.active {
+  background: #404249;
+  color: #fff;
+}
+
+.channel-item.locked {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.channel-item.locked:hover {
+  background: transparent;
+  color: #949ba4;
+}
+
+.channel-icon {
+  font-size: 20px;
+  width: 20px;
+  text-align: center;
+}
+
+.channel-item.active .channel-icon { color: #fff; }
+.channel-item.locked .channel-icon { color: #f23f43; }
+
+.voice-users {
+  margin-left: 28px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voice-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #949ba4;
+}
+
+.voice-user-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.voice-user img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* User Area */
+.user-area {
+  height: 52px;
+  background: #232428;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 8px;
+  border-top: 1px solid #1e1f22;
+  margin-top: auto;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.user-status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #23a559;
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  border: 2px solid #232428;
+}
+
+.user-info { flex: 1; min-width: 0; }
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f2f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-status {
+  font-size: 12px;
+  color: #949ba4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.user-btn {
+  background: transparent;
+  border: none;
+  color: #b5bac1;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+
+.user-btn:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+
+/* Chat Container */
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #313338;
+  min-width: 0;
+}
+
+.chat-header {
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #1e1f22;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #f2f3f5;
+  flex-shrink: 0;
+}
+
+.chat-header .channel-icon {
+  color: #949ba4;
+  font-size: 24px;
+}
+
+.chat-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-divider {
+  width: 1px;
+  height: 24px;
+  background: #3f4147;
+  margin: 0 8px;
+}
+
+.chat-header-topic {
+  color: #949ba4;
+  font-size: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-btn {
+  background: #2b2d31;
+  border: none;
+  color: #b5bac1;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.1s;
+}
+
+.header-btn:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+
+/* Voice Panel */
+.voice-panel {
+  background: #2b2d31;
+  padding: 16px;
+  border-bottom: 1px solid #1e1f22;
+  display: none;
+}
+
+.voice-panel.active {
+  display: block;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.voice-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  color: #949ba4;
+  font-size: 14px;
+}
+
+.voice-channel-name {
+  color: #23a559;
+  font-weight: 600;
+}
+
+.voice-users-display {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.voice-participant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.voice-participant-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+  position: relative;
+  border: 3px solid #23a559;
+}
+
+.voice-participant-avatar.speaking {
+  box-shadow: 0 0 0 4px rgba(35, 165, 89, 0.3);
+}
+
+.voice-participant-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.voice-participant-name {
+  font-size: 12px;
+  color: #dbdee1;
+  font-weight: 500;
+}
+
+.voice-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.voice-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  background: #313338;
+  color: #dbdee1;
+}
+
+.voice-btn:hover {
+  background: #35363c;
+}
+
+.voice-btn.active {
+  background: #ed4245;
+  color: white;
+}
+
+.voice-btn.disconnect {
+  background: #f23f43;
+  color: white;
+}
+
+.voice-btn.disconnect:hover {
+  background: #d01b20;
+}
+
+/* Messages Area */
+.messages-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.welcome-message {
+  text-align: center;
+  padding: 32px;
+  color: #949ba4;
+}
+
+.welcome-message h2 {
+  color: #f2f3f5;
+  margin-bottom: 8px;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.welcome-message p {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.message {
+  display: flex;
+  gap: 16px;
+  padding: 2px 16px;
+  margin: 0 -16px;
+  position: relative;
+  transition: background 0.05s;
+}
+
+.message:hover {
+  background: #2e3035;
+}
+
+.message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 16px;
+  color: white;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.message-content {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 16px;
+}
+
+.message-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  height: 22px;
+}
+
+.message-author {
+  font-weight: 500;
+  font-size: 16px;
+  color: #f2f3f5;
+  cursor: pointer;
+}
+
+.message-author:hover {
+  text-decoration: underline;
+}
+
+.message-timestamp {
+  font-size: 12px;
+  color: #949ba4;
+  font-weight: 400;
+}
+
+.message-text {
+  font-size: 15px;
+  line-height: 1.375;
+  color: #dbdee1;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.message-image {
+  max-width: 400px;
+  max-height: 300px;
+  border-radius: 8px;
+  margin-top: 4px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.message-image:hover {
+  transform: scale(1.02);
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+  height: 16px;
+}
+
+.message-actions {
+  position: absolute;
+  top: -8px;
+  right: 16px;
+  background: #313338;
+  border: 1px solid #1e1f22;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  display: none;
+  overflow: hidden;
+}
+
+.message:hover .message-actions {
+  display: flex;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  color: #b5bac1;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.1s;
+}
+
+.action-btn:hover {
+  background: #5865f2;
+  color: white;
+}
+
+.action-btn.delete:hover {
+  background: #f23f43;
+}
+
+/* Message Input */
+.message-input-area {
+  padding: 0 16px 24px;
+  flex-shrink: 0;
+}
+
+.message-input-wrapper {
+  background: #383a40;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-input-container {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  min-height: 44px;
+}
+
+.attach-btn {
+  background: transparent;
+  border: none;
+  color: #b5bac1;
+  cursor: pointer;
+  font-size: 20px;
+  padding: 8px;
+  margin-right: 8px;
+  border-radius: 4px;
+  transition: all 0.1s;
+}
+
+.attach-btn:hover {
+  color: #dbdee1;
+  background: #404249;
+}
+
+.message-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #dbdee1;
+  font-size: 15px;
+  font-family: inherit;
+  padding: 11px 0;
+  line-height: 1.375;
+}
+
+.message-input::placeholder { color: #949ba4; }
+
+.input-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid #404249;
+  align-items: center;
+}
+
+.input-btn {
+  background: #5865f2;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.input-btn:hover { background: #4752c4; }
+
+.input-btn:disabled {
+  background: #4f545c;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.char-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #949ba4;
+}
+
+.char-count.warning { color: #f0b232; }
+.char-count.error { color: #f23f43; }
+
+/* Member List */
+.member-list {
+  width: 240px;
+  background: #2b2d31;
+  overflow-y: auto;
+  padding: 16px 8px;
+  flex-shrink: 0;
+  border-left: 1px solid #1e1f22;
+}
+
+.member-category {
+  margin-bottom: 24px;
+}
+
+.member-category-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: #949ba4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.member-count {
+  font-size: 11px;
+  color: #6d6f78;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin: 1px 0;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.member-item:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+
+.member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  position: relative;
+  flex-shrink: 0;
+  color: white;
+}
+
+.member-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.member-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #23a559;
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  border: 2px solid #2b2d31;
+}
+
+.member-status.idle { background: #f0b232; }
+.member-status.dnd { background: #f23f43; }
+.member-status.offline { background: #80848e; }
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.member-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #dbdee1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-item:hover .member-name { color: #fff; }
+
+.member-status-text {
+  font-size: 11px;
+  color: #949ba4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Modals */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.85);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.modal-overlay.active { display: flex; animation: fadeIn 0.2s ease; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content {
+  background: #313338;
+  border-radius: 8px;
+  padding: 0;
+  min-width: 440px;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  animation: modalSlide 0.2s ease;
+}
+
+@keyframes modalSlide {
+  from { opacity: 0; transform: scale(0.95) translateY(-10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-header {
+  padding: 16px 24px;
+  background: #2b2d31;
+  border-bottom: 1px solid #1e1f22;
+}
+
+.modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f2f3f5;
+  margin-bottom: 4px;
+}
+
+.modal-subtitle {
+  font-size: 14px;
+  color: #949ba4;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  background: #2b2d31;
+  border-top: 1px solid #1e1f22;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.modal-input-group {
+  margin-bottom: 16px;
+}
+
+.modal-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #b5bac1;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.modal-input {
+  width: 100%;
+  background: #1e1f22;
+  border: 1px solid #1e1f22;
+  border-radius: 4px;
+  padding: 12px;
+  color: #dbdee1;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.modal-input:focus { border-color: #5865f2; }
+
+.modal-input::placeholder { color: #6d6f78; }
+
+.file-input-wrapper {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+.file-input-wrapper input[type=file] {
+  position: absolute;
+  left: -9999px;
+}
+
+.file-input-label {
+  display: block;
+  padding: 12px;
+  background: #1e1f22;
+  border: 2px dashed #404249;
+  border-radius: 4px;
+  text-align: center;
+  cursor: pointer;
+  color: #949ba4;
+  transition: all 0.15s;
+}
+
+.file-input-label:hover {
+  border-color: #5865f2;
+  color: #dbdee1;
+}
+
+.modal-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+.modal-btn.primary {
+  background: #5865f2;
+  color: white;
+}
+
+.modal-btn.primary:hover { background: #4752c4; }
+
+.modal-btn.secondary {
+  background: transparent;
+  color: #dbdee1;
+}
+
+.modal-btn.secondary:hover { background: #35363c; }
+
+.modal-btn.danger {
+  background: #f23f43;
+  color: white;
+  margin-right: auto;
+}
+
+.modal-btn.danger:hover { background: #d01b20; }
+
+/* Invite Code */
+.invite-section {
+  background: #2b2d31;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.invite-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #949ba4;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.invite-code-box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.invite-code {
+  flex: 1;
+  background: #1e1f22;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 2px;
+  color: #dbdee1;
+  border: 1px solid #404249;
+  user-select: all;
+}
+
+.copy-btn {
+  background: #5865f2;
+  border: none;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.copy-btn:hover { background: #4752c4; }
+
+.copy-btn.copied {
+  background: #23a559;
+}
+
+/* Dropdown Menu */
+.dropdown-menu {
+  position: absolute;
+  background: #111214;
+  border-radius: 4px;
+  padding: 8px;
+  min-width: 220px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+  z-index: 100;
+  display: none;
+  border: 1px solid #1e1f22;
+}
+
+.dropdown-menu.active { display: block; animation: menuSlide 0.1s ease; }
+
+@keyframes menuSlide {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-item {
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #dbdee1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.1s;
+}
+
+.dropdown-item:hover { background: #5865f2; }
+
+.dropdown-item.danger { color: #f23f43; }
+
+.dropdown-item.danger:hover {
+  background: #f23f43;
+  color: white;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: #1e1f22;
+  margin: 8px 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #1a1b1e;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #2b2d31; }
+
+/* Typing indicator */
+.typing-indicator {
+  display: none;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #949ba4;
+  align-items: center;
+  gap: 6px;
+}
+
+.typing-indicator.active { display: flex; }
+
+.typing-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: #949ba4;
+  border-radius: 50%;
+  animation: typing 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: #2b2d31;
+  color: #dbdee1;
+  padding: 12px 16px;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideIn 0.3s ease;
+  border-left: 4px solid #5865f2;
+  min-width: 300px;
+}
+
+.toast.success { border-left-color: #23a559; }
+.toast.error { border-left-color: #f23f43; }
+
+@keyframes slideIn {
+  from { transform: translateX(400px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Loading states */
+.loading-skeleton {
+  background: linear-gradient(90deg, #2b2d31 25%, #35363c 50%, #2b2d31 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: 4px;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #949ba4;
+  text-align: center;
+  padding: 32px;
+}
+
+.empty-state-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-state h3 {
+  color: #f2f3f5;
+  margin-bottom: 8px;
+  font-size: 20px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .member-list { display: none; }
+}
+
+@media (max-width: 768px) {
+  .channel-sidebar { display: none; }
+}
+</style>
+<base target="_blank">
+</head>
+<body>
+
+<div class="server-list" id="serverList">
+  <div class="server-icon home" onclick="goHome()" title="Home">🏠</div>
+  <div class="server-divider"></div>
+</div>
+
+<div class="channel-sidebar" id="channelSidebar">
+  <div class="server-header" onclick="showServerMenu(event)">
+    <span id="serverName">Home Server</span>
+    <span class="dropdown-icon">▼</span>
+  </div>
+
+  <div class="channels-container" id="channelsContainer">
+    <div class="channel-category" id="textChannelsCategory">
+      <div class="category-header" onclick="toggleCategory(this)">
+        <span>▼</span>
+        <span>TEXT CHANNELS</span>
+        <span onclick="event.stopPropagation(); showModal('addChannel')" style="cursor:pointer;opacity:0.7;">+</span>
+      </div>
+      <div id="textChannelsList"></div>
+    </div>
+
+    <div class="channel-category" id="voiceChannelsCategory">
+      <div class="category-header" onclick="toggleCategory(this)">
+        <span>▼</span>
+        <span>VOICE CHANNELS</span>
+        <span onclick="event.stopPropagation(); showModal('addVoiceChannel')" style="cursor:pointer;opacity:0.7;">+</span>
+      </div>
+      <div id="voiceChannelsList"></div>
+    </div>
+  </div>
+
+  <div class="user-area">
+    <div class="user-avatar" id="userAvatar">
+      <span id="userAvatarText">U</span>
+      <div class="user-status-indicator" id="userStatusIndicator"></div>
+    </div>
+    <div class="user-info">
+      <div class="user-name" id="userName">User</div>
+      <div class="user-status" id="userStatus">Online</div>
+    </div>
+    <div class="user-controls">
+      <button class="user-btn" onclick="toggleMute()" id="micBtn" title="Toggle Mute">🎤</button>
+      <button class="user-btn" onclick="showModal('settings')" title="User Settings">⚙️</button>
+    </div>
+  </div>
+</div>
+
+<div class="chat-container" id="chatContainer">
+  <div class="chat-header">
+    <div class="chat-header-title">
+      <span class="channel-icon" id="headerIcon">#</span>
+      <span id="currentChannelName">general</span>
+      <div class="header-divider" id="headerDivider" style="display:none;"></div>
+      <span class="chat-header-topic" id="channelTopic"></span>
+    </div>
+    <div class="header-actions">
+      <button class="header-btn" onclick="showModal('invite')">
+        <span>📧</span> Invite
+      </button>
+      <button class="header-btn" onclick="toggleMemberList()" id="memberListBtn">
+        <span>👥</span> Members
+      </button>
+    </div>
+  </div>
+
+  <div class="voice-panel" id="voicePanel">
+    <div class="voice-info">
+      <span>🔊</span>
+      <span>Connected to <span class="voice-channel-name" id="voiceChannelName">General Voice</span></span>
+    </div>
+    <div class="voice-users-display" id="voiceUsersDisplay"></div>
+    <div class="voice-controls">
+      <button class="voice-btn" id="voiceMuteBtn" onclick="toggleVoiceMute()" title="Mute">🎤</button>
+      <button class="voice-btn" id="voiceDeafenBtn" onclick="toggleDeafen()" title="Deafen">🎧</button>
+      <button class="voice-btn disconnect" onclick="disconnectVoice()" title="Disconnect">📞</button>
+    </div>
+  </div>
+
+  <div class="messages-area" id="messagesArea">
+    <div class="welcome-message" id="welcomeMessage">
+      <h2>Welcome to <span id="welcomeServerName">Discord Clone</span></h2>
+      <p>This is the beginning of the <strong>#general</strong> channel.</p>
+    </div>
+  </div>
+
+  <div class="typing-indicator" id="typingIndicator">
+    <div class="typing-dots">
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+    </div>
+    <span id="typingText">Someone is typing...</span>
+  </div>
+
+  <div class="message-input-area">
+    <div class="message-input-wrapper">
+      <div class="message-input-container">
+        <button class="attach-btn" onclick="document.getElementById('imageInput').click()" title="Upload Image">📎</button>
+        <input type="text" class="message-input" id="messageInput" placeholder="Message #general" maxlength="2000">
+      </div>
+      <div class="input-actions">
+        <span class="char-count" id="charCount">0/2000</span>
+        <button class="input-btn" onclick="sendMessage()" id="sendBtn">Send Message</button>
+        <input type="file" id="imageInput" accept="image/*" style="display:none;">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="member-list" id="memberList">
+  <div id="membersContainer"></div>
+</div>
+
+<!-- Modals -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">User Settings</div>
+      <div class="modal-subtitle">Customize your profile</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Username</label>
+        <input type="text" class="modal-input" id="usernameInput" placeholder="Enter username" maxlength="32">
+      </div>
+      <div class="modal-input-group">
+        <label class="modal-label">Avatar</label>
+        <div class="file-input-wrapper">
+          <input type="file" id="avatarInput" accept="image/*">
+          <label for="avatarInput" class="file-input-label" id="avatarLabel">Click to upload avatar</label>
+        </div>
+      </div>
+      <div class="modal-input-group">
+        <label class="modal-label">Status</label>
+        <select class="modal-input" id="statusSelect">
+          <option value="online">🟢 Online</option>
+          <option value="idle">🟡 Idle</option>
+          <option value="dnd">🔴 Do Not Disturb</option>
+          <option value="offline">⚫ Invisible</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('settings')">Cancel</button>
+      <button class="modal-btn primary" onclick="saveSettings()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="welcomeModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Welcome to Discord Clone</div>
+      <div class="modal-subtitle">Get started by creating or joining a server</div>
+    </div>
+    <div class="modal-body" style="text-align:center;padding:32px;">
+      <div style="font-size:48px;margin-bottom:16px;">👋</div>
+      <p style="color:#949ba4;margin-bottom:24px;">You haven't joined any servers yet. Create your own server or join an existing one with an invite code.</p>
+    </div>
+    <div class="modal-footer" style="justify-content:center;gap:16px;">
+      <button class="modal-btn primary" onclick="hideModal('welcome'); showModal('addServer')">Create My Server</button>
+      <button class="modal-btn secondary" onclick="hideModal('welcome'); showModal('invite')">Join a Server</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addServerModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Create Your Server</div>
+      <div class="modal-subtitle">Give your new server a personality</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Server Name *</label>
+        <input type="text" class="modal-input" id="serverNameInput" placeholder="Enter server name" maxlength="100">
+      </div>
+      <div class="modal-input-group">
+        <label class="modal-label">Server Icon</label>
+        <div class="file-input-wrapper">
+          <input type="file" id="serverIconInput" accept="image/*">
+          <label for="serverIconInput" class="file-input-label" id="serverIconLabel">Click to upload server icon</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('addServer'); showModal('welcome')">Back</button>
+      <button class="modal-btn primary" onclick="createServer()">Create Server</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addChannelModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Create Text Channel</div>
+      <div class="modal-subtitle">In <span id="addChannelServerName">Server</span></div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Channel Name *</label>
+        <input type="text" class="modal-input" id="channelNameInput" placeholder="new-channel" maxlength="100">
+        <small style="color:#949ba4;font-size:12px;margin-top:4px;display:block;">Use lowercase with hyphens (e.g., general-chat)</small>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('addChannel')">Cancel</button>
+      <button class="modal-btn primary" onclick="createChannel()">Create Channel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addVoiceChannelModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Create Voice Channel</div>
+      <div class="modal-subtitle">In <span id="addVoiceChannelServerName">Server</span></div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Channel Name *</label>
+        <input type="text" class="modal-input" id="voiceChannelNameInput" placeholder="General Voice" maxlength="100">
+      </div>
+      <div class="modal-input-group">
+        <label class="modal-label">User Limit (optional)</label>
+        <input type="number" class="modal-input" id="voiceChannelLimit" placeholder="No limit" min="1" max="99">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('addVoiceChannel')">Cancel</button>
+      <button class="modal-btn primary" onclick="createVoiceChannel()">Create Channel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Invite Friends</div>
+      <div class="modal-subtitle">Share your server with others</div>
+    </div>
+    <div class="modal-body">
+      <div class="invite-section" id="inviteSection">
+        <div class="invite-label">Server Invite Code</div>
+        <div class="invite-code-box">
+          <div class="invite-code" id="inviteCode">LOADING...</div>
+          <button class="copy-btn" onclick="copyInviteCode()">Copy</button>
+        </div>
+      </div>
+      <div class="modal-input-group">
+        <label class="modal-label">Or join a server</label>
+        <input type="text" class="modal-input" id="joinCodeInput" placeholder="Enter invite code (e.g., ABC12345)" maxlength="8">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('invite')">Close</button>
+      <button class="modal-btn primary" onclick="joinServer()">Join Server</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="manageChannelsModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Channel Settings</div>
+      <div class="modal-subtitle">Manage permissions and settings</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Select Channel</label>
+        <select class="modal-input" id="channelSelect" onchange="loadChannelPermissions()"></select>
+      </div>
+      <div id="channelPermissions">
+        <div class="modal-input-group">
+          <label class="modal-label">View Permissions</label>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="viewAdmin"> Admin
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="viewModerator"> Moderator
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="viewMember"> Member
+            </label>
+          </div>
+        </div>
+        <div class="modal-input-group">
+          <label class="modal-label">Send Messages</label>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="sendAdmin"> Admin
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="sendModerator"> Moderator
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="sendMember"> Member
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn danger" onclick="deleteChannel()">Delete Channel</button>
+      <button class="modal-btn secondary" onclick="hideModal('manageChannels')">Cancel</button>
+      <button class="modal-btn primary" onclick="saveChannelPermissions()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="dropdown-menu" id="serverMenu">
+  <div class="dropdown-item" onclick="showModal('invite')">
+    <span>📧</span> Invite People
+  </div>
+  <div class="dropdown-item" onclick="showModal('addChannel')">
+    <span>➕</span> Create Text Channel
+  </div>
+  <div class="dropdown-item" onclick="showModal('addVoiceChannel')">
+    <span>🔊</span> Create Voice Channel
+  </div>
+  <div class="dropdown-item" onclick="showModal('manageChannels')">
+    <span>⚙️</span> Channel Settings
+  </div>
+  <div class="dropdown-item" onclick="manageRoles()">
+    <span>👑</span> Manage Roles
+  </div>
+  <div class="dropdown-divider"></div>
+  <div class="dropdown-item danger" onclick="leaveServer()">
+    <span>🚪</span> Leave Server
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// Firebase Configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyA4BYjOa__uKZjOBvS5p_uMxmJ6AMsKcpg",
+  authDomain: "chat1-6cc2e.firebaseapp.com",
+  databaseURL: "https://chat1-6cc2e-default-rtdb.firebaseio.com",
+  projectId: "chat1-6cc2e",
+  storageBucket: "chat1-6cc2e.firebasestorage.app",
+  messagingSenderId: "771765903902",
+  appId: "1:771765903902:web:a6fb2e71b059c20ba7840f"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
+// State Management
+let currentUser = null;
+let currentServer = null;
+let currentChannel = 'general';
+let currentChannelType = 'text';
+let currentVoiceChannel = null;
+let userProfile = {
+  username: 'User' + Math.floor(Math.random() * 10000),
+  avatar: null,
+  role: 'Member',
+  uid: null,
+  status: 'online'
+};
+let userServers = [];
+let inVoiceChannel = false;
+let isMuted = false;
+let isDeafened = false;
+let messageListeners = [];
+let typingTimeout = null;
+
+// DOM Elements
+const elements = {
+  serverList: document.getElementById('serverList'),
+  serverName: document.getElementById('serverName'),
+  channelsContainer: document.getElementById('channelsContainer'),
+  textChannelsList: document.getElementById('textChannelsList'),
+  voiceChannelsList: document.getElementById('voiceChannelsList'),
+  messagesArea: document.getElementById('messagesArea'),
+  messageInput: document.getElementById('messageInput'),
+  currentChannelName: document.getElementById('currentChannelName'),
+  headerIcon: document.getElementById('headerIcon'),
+  userName: document.getElementById('userName'),
+  userStatus: document.getElementById('userStatus'),
+  userAvatar: document.getElementById('userAvatar'),
+  userAvatarText: document.getElementById('userAvatarText'),
+  voicePanel: document.getElementById('voicePanel'),
+  voiceChannelName: document.getElementById('voiceChannelName'),
+  voiceUsersDisplay: document.getElementById('voiceUsersDisplay'),
+  memberList: document.getElementById('memberList'),
+  membersContainer: document.getElementById('membersContainer'),
+  typingIndicator: document.getElementById('typingIndicator'),
+  charCount: document.getElementById('charCount')
+};
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+  loadCookies();
+  updateUserDisplay();
+  setupEventListeners();
+  setupFileInputs();
+
+  auth.signInAnonymously().then(user => {
+    currentUser = user.user;
+    userProfile.uid = currentUser.uid;
+    saveCookies();
+
+    if (userServers.length === 0) {
+      showModal('welcome');
+      joinOfficialServer();
+    } else {
+      currentServer = getCookie('lastServer') || userServers[0];
+      initializeApp();
+    }
+  }).catch(error => {
+    showToast('Authentication failed: ' + error.message, 'error');
+  });
+});
+
+function initializeApp() {
+  loadUserServers();
+  if (currentServer) {
+    selectServer(currentServer);
+  }
+  startPresenceUpdates();
+}
+
+function loadCookies() {
+  const profile = getCookie('userProfile');
+  if (profile) {
+    try {
+      userProfile = { ...userProfile, ...JSON.parse(profile) };
+    } catch (e) { }
+  }
+
+  const servers = getCookie('userServers');
+  if (servers) {
+    try {
+      userServers = JSON.parse(servers);
+    } catch (e) {
+      userServers = [];
+    }
+  }
+
+  currentServer = getCookie('lastServer') || null;
+}
+
+function saveCookies() {
+  setCookie('userProfile', JSON.stringify(userProfile), 365);
+  setCookie('userServers', JSON.stringify(userServers), 365);
+  if (currentServer) setCookie('lastServer', currentServer, 365);
+}
+
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+function setCookie(name, value, days) {
+  const expires = new Date(Date.now() + days * 86400000).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/`;
+}
+
+function updateUserDisplay() {
+  elements.userName.textContent = userProfile.username;
+  elements.userStatus.textContent = userProfile.status.charAt(0).toUpperCase() + userProfile.status.slice(1);
+
+  if (userProfile.avatar) {
+    elements.userAvatar.innerHTML = `<img src="${userProfile.avatar}" alt=""><div class="user-status-indicator" id="userStatusIndicator"></div>`;
+  } else {
+    elements.userAvatarText.textContent = userProfile.username.charAt(0).toUpperCase();
+  }
+
+  document.getElementById('usernameInput').value = userProfile.username;
+  document.getElementById('statusSelect').value = userProfile.status;
+}
+
+function setupEventListeners() {
+  // Message input
+  elements.messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  elements.messageInput.addEventListener('input', (e) => {
+    const len = e.target.value.length;
+    elements.charCount.textContent = `${len}/2000`;
+    elements.charCount.className = 'char-count' + (len > 1800 ? ' warning' : '') + (len >= 2000 ? ' error' : '');
+
+    // Typing indicator
+    if (currentServer && currentChannel && currentChannelType === 'text') {
+      db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).set({
+        username: userProfile.username,
+        timestamp: Date.now()
+      });
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).remove();
+      }, 3000);
+    }
+  });
+
+  // Close dropdowns on click outside
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('serverMenu');
+    if (!e.target.closest('.server-header') && menu.classList.contains('active')) {
+      menu.classList.remove('active');
+    }
+  });
+
+  // Before unload
+  window.addEventListener('beforeunload', () => {
+    if (currentUser) {
+      userServers.forEach(serverId => {
+        db.ref(`servers/${serverId}/members/${currentUser.uid}/status`).set('offline');
+      });
+      if (inVoiceChannel && currentServer) {
+        db.ref(`servers/${currentServer}/voiceChannels_data/${inVoiceChannel}/users/${currentUser.uid}`).remove();
+      }
+    }
+  });
+}
+
+function setupFileInputs() {
+  const avatarInput = document.getElementById('avatarInput');
+  const serverIconInput = document.getElementById('serverIconInput');
+
+  avatarInput.addEventListener('change', (e) => {
+    if (e.target.files[0]) {
+      document.getElementById('avatarLabel').textContent = `Selected: ${e.target.files[0].name}`;
+    }
+  });
+
+  serverIconInput.addEventListener('change', (e) => {
+    if (e.target.files[0]) {
+      document.getElementById('serverIconLabel').textContent = `Selected: ${e.target.files[0].name}`;
+    }
+  });
+
+  document.getElementById('imageInput').addEventListener('change', handleImageUpload);
+}
+
+// Server Management
+function loadUserServers() {
+  elements.serverList.innerHTML = `
+    <div class="server-icon home" onclick="goHome()" title="Home">🏠</div>
+    <div class="server-divider"></div>
+  `;
+
+  if (userServers.length === 0) {
+    elements.serverList.innerHTML += '<div style="color:#949ba4;text-align:center;padding:20px;font-size:11px;">No servers</div>';
+  } else {
+    userServers.forEach((serverId, index) => {
+      db.ref(`servers/${serverId}`).once('value').then(snap => {
+        if (snap.exists()) {
+          const serverData = snap.val();
+          const div = document.createElement('div');
+          div.className = 'server-icon' + (serverId === currentServer ? ' active' : '');
+          div.setAttribute('data-server', serverId);
+          div.title = serverData.name || 'Server';
+          div.onclick = () => selectServer(serverId);
+
+          if (serverData.icon) {
+            div.innerHTML = `<img src="${serverData.icon}" alt="">`;
+          } else {
+            div.innerHTML = `<span>${(serverData.name || 'S').charAt(0).toUpperCase()}</span>`;
+          }
+
+          elements.serverList.appendChild(div);
+        }
+      });
+    });
+  }
+
+  const addBtn = document.createElement('div');
+  addBtn.className = 'server-icon add-server';
+  addBtn.innerHTML = '+';
+  addBtn.title = 'Add a Server';
+  addBtn.onclick = () => showModal('addServer');
+  elements.serverList.appendChild(addBtn);
+}
+
+function selectServer(serverId) {
+  if (!serverId) return;
+
+  currentServer = serverId;
+  currentChannel = null;
+  currentChannelType = 'text';
+  saveCookies();
+
+  // Update active state
+  document.querySelectorAll('.server-icon').forEach(icon => {
+    icon.classList.remove('active');
+    if (icon.getAttribute('data-server') === serverId) {
+      icon.classList.add('active');
+    }
+  });
+
+  // Load server data
+  db.ref(`servers/${serverId}`).once('value').then(snap => {
+    if (snap.exists()) {
+      const data = snap.val();
+      elements.serverName.textContent = data.name || 'Server';
+      document.getElementById('welcomeServerName').textContent = data.name || 'Discord Clone';
+      document.getElementById('addChannelServerName').textContent = data.name || 'Server';
+      document.getElementById('addVoiceChannelServerName').textContent = data.name || 'Server';
+
+      // Ensure member exists
+      db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value').then(memberSnap => {
+        if (!memberSnap.exists()) {
+          db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+            username: userProfile.username,
+            role: 'Member',
+            avatar: userProfile.avatar,
+            status: 'online',
+            joinedAt: Date.now()
+          });
+        } else {
+          const memberData = memberSnap.val();
+          userProfile.role = memberData.role || 'Member';
+          updateUserDisplay();
+        }
+      });
+
+      loadChannels();
+      if (elements.memberList.style.display !== 'none') {
+        loadMemberList();
+      }
+    }
+  });
+}
+
+function goHome() {
+  currentServer = null;
+  currentChannel = null;
+  elements.serverName.textContent = 'Home';
+  elements.textChannelsList.innerHTML = '';
+  elements.voiceChannelsList.innerHTML = '';
+  elements.messagesArea.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">🏠</div>
+      <h3>Welcome Home</h3>
+      <p>Select a server from the left to start chatting, or create a new one!</p>
+    </div>
+  `;
+  elements.messageInput.disabled = true;
+  elements.messageInput.placeholder = 'Select a server to send messages';
+  document.querySelectorAll('.server-icon').forEach(icon => icon.classList.remove('active'));
+  document.querySelector('.server-icon.home').classList.add('active');
+}
+
+function createServer() {
+  const name = document.getElementById('serverNameInput').value.trim();
+  if (!name) {
+    showToast('Please enter a server name', 'error');
+    return;
+  }
+
+  const serverId = 'server_' + Date.now();
+  const file = document.getElementById('serverIconInput').files[0];
+
+  const finalizeCreation = (iconUrl = null) => {
+    const serverData = {
+      name: name,
+      icon: iconUrl,
+      createdAt: Date.now(),
+      invite: generateInviteCode(),
+      roles: {
+        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles'], color: '#f23f43', hoist: true },
+        Moderator: { permissions: ['manage_messages'], color: '#5865f2', hoist: true },
+        Member: { permissions: [], color: '#949ba4', hoist: false }
+      }
+    };
+
+    db.ref(`servers/${serverId}`).set(serverData).then(() => {
+      // Create default channels
+      db.ref(`servers/${serverId}/channels/general`).set(true);
+      db.ref(`servers/${serverId}/channels/welcome`).set(true);
+
+      // Create default voice channel
+      db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
+
+      // Add creator as admin
+      db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+        username: userProfile.username,
+        role: 'Admin',
+        avatar: userProfile.avatar,
+        status: 'online',
+        joinedAt: Date.now()
+      });
+
+      // Add welcome message
+      db.ref(`servers/${serverId}/channels_data/general/messages`).push({
+        author: 'System',
+        text: `Welcome to ${name}! This is the beginning of the server.`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        role: 'System',
+        roleColor: '#23a559',
+        uid: 'system',
+        timestamp: Date.now()
+      });
+
+      userServers.push(serverId);
+      saveCookies();
+      loadUserServers();
+      selectServer(serverId);
+      hideModal('addServer');
+      document.getElementById('serverNameInput').value = '';
+      document.getElementById('serverIconInput').value = '';
+      document.getElementById('serverIconLabel').textContent = 'Click to upload server icon';
+      showToast('Server created successfully!', 'success');
+    });
+  };
+
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = (e) => finalizeCreation(e.target.result);
+    reader.readAsDataURL(file);
+  } else {
+    finalizeCreation();
+  }
+}
+
+function joinServer() {
+  const code = document.getElementById('joinCodeInput').value.trim().toUpperCase();
+  if (!code) {
+    showToast('Please enter an invite code', 'error');
+    return;
+  }
+
+  db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    let foundServer = null;
+
+    Object.entries(servers).forEach(([id, data]) => {
+      if (data.invite === code) foundServer = id;
+    });
+
+    if (!foundServer) {
+      showToast('Invalid invite code', 'error');
+      return;
+    }
+
+    if (userServers.includes(foundServer)) {
+      showToast('You are already in this server', 'error');
+      return;
+    }
+
+    db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
+      username: userProfile.username,
+      role: 'Member',
+      avatar: userProfile.avatar,
+      status: 'online',
+      joinedAt: Date.now()
+    });
+
+    // Send join message
+    db.ref(`servers/${foundServer}/channels_data/general/messages`).push({
+      author: 'System',
+      text: `${userProfile.username} joined the server.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      role: 'System',
+      roleColor: '#23a559',
+      uid: 'system',
+      timestamp: Date.now()
+    });
+
+    userServers.push(foundServer);
+    saveCookies();
+    loadUserServers();
+    selectServer(foundServer);
+    hideModal('invite');
+    document.getElementById('joinCodeInput').value = '';
+    showToast('Successfully joined server!', 'success');
+  });
+}
+
+function joinOfficialServer() {
+  const code = 'GE83GAOJ';
+  db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    let foundServer = null;
+
+    Object.entries(servers).forEach(([id, data]) => {
+      if (data.invite === code) foundServer = id;
+    });
+
+    if (foundServer && !userServers.includes(foundServer)) {
+      db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
+        username: userProfile.username,
+        role: 'Member',
+        avatar: userProfile.avatar,
+        status: 'online',
+        joinedAt: Date.now()
+      });
+
+      userServers.push(foundServer);
+      saveCookies();
+
+      if (!currentServer) {
+        currentServer = foundServer;
+        initializeApp();
+      }
+    }
+  });
+}
+
+function leaveServer() {
+  if (userServers.length <= 1) {
+    showToast('You cannot leave your last server', 'error');
+    return;
+  }
+
+  if (!confirm('Are you sure you want to leave this server?')) return;
+
+  db.ref(`servers/${currentServer}/channels_data/general/messages`).push({
+    author: 'System',
+    text: `${userProfile.username} left the server.`,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    role: 'System',
+    roleColor: '#f23f43',
+    uid: 'system',
+    timestamp: Date.now()
+  });
+
+  db.ref(`servers/${currentServer}/members/${currentUser.uid}`).remove();
+  userServers = userServers.filter(s => s !== currentServer);
+  saveCookies();
+
+  const newServer = userServers[0];
+  selectServer(newServer);
+  hideModal('serverMenu');
+}
+
+// Channel Management
+function loadChannels() {
+  if (!currentServer) return;
+
+  // Clear previous listeners
+  messageListeners.forEach(ref => ref.off());
+  messageListeners = [];
+
+  // Load text channels
+  db.ref(`servers/${currentServer}/channels`).on('value', snapshot => {
+    const channels = snapshot.val() || {};
+    elements.textChannelsList.innerHTML = '';
+
+    Object.keys(channels).sort().forEach(channelName => {
+      checkChannelAccess(channelName, 'text').then(hasAccess => {
+        const div = document.createElement('div');
+        div.className = 'channel-item' + (channelName === currentChannel && currentChannelType === 'text' ? ' active' : '');
+        if (!hasAccess) div.classList.add('locked');
+
+        div.innerHTML = `<span class="channel-icon">#</span><span>${channelName}</span>`;
+
+        if (hasAccess) {
+          div.onclick = () => switchChannel(channelName, 'text');
+        } else {
+          div.onclick = () => showToast('You do not have permission to view this channel', 'error');
+        }
+
+        elements.textChannelsList.appendChild(div);
+
+        if (!currentChannel && hasAccess) {
+          switchChannel(channelName, 'text');
+        }
+      });
+    });
+  });
+
+  // Load voice channels
+  db.ref(`servers/${currentServer}/voiceChannels`).on('value', snapshot => {
+    const channels = snapshot.val() || {};
+    elements.voiceChannelsList.innerHTML = '';
+
+    Object.entries(channels).forEach(([channelName, channelData]) => {
+      const div = document.createElement('div');
+      div.className = 'channel-item' + (channelName === currentChannel && currentChannelType === 'voice' ? ' active' : '');
+
+      const userCount = channelData.users ? Object.keys(channelData.users).length : 0;
+      const limit = channelData.limit || 0;
+      const limitText = limit > 0 ? ` (${userCount}/${limit})` : ` (${userCount})`;
+
+      div.innerHTML = `
+        <span class="channel-icon">🔊</span>
+        <span>${channelName}${limitText}</span>
+      `;
+
+      div.onclick = () => joinVoiceChannel(channelName);
+
+      elements.voiceChannelsList.appendChild(div);
+
+      // Show users in voice channel
+      if (channelData.users) {
+        const usersDiv = document.createElement('div');
+        usersDiv.className = 'voice-users';
+        Object.entries(channelData.users).forEach(([uid, userData]) => {
+          const userDiv = document.createElement('div');
+          userDiv.className = 'voice-user';
+          userDiv.innerHTML = `
+            <div class="voice-user-avatar">${userData.avatar ? `<img src="${userData.avatar}">` : (userData.username ? userData.username.charAt(0).toUpperCase() : '?')}</div>
+            <span>${userData.username || 'Unknown'}</span>
+          `;
+          usersDiv.appendChild(userDiv);
+        });
+        elements.voiceChannelsList.appendChild(usersDiv);
+      }
+    });
+  });
+}
+
+function checkChannelAccess(channelName, type) {
+  return new Promise((resolve) => {
+    if (userProfile.role === 'Admin') {
+      resolve(true);
+      return;
+    }
+
+    db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).once('value').then(snap => {
+      const perms = snap.val() || {};
+      const requiredRoles = type === 'text' ? (perms.requiredRolesToView || []) : (perms.voiceRoles || []);
+      if (requiredRoles.length === 0) {
+        resolve(true);
+      } else {
+        resolve(requiredRoles.includes(userProfile.role));
+      }
+    });
+  });
+}
+
+function switchChannel(channelName, type) {
+  currentChannel = channelName;
+  currentChannelType = type;
+
+  elements.currentChannelName.textContent = channelName;
+  elements.headerIcon.textContent = type === 'voice' ? '🔊' : '#';
+  elements.messageInput.placeholder = `Message #${channelName}`;
+
+  // Update UI
+  document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+  event?.currentTarget?.classList.add('active');
+
+  if (type === 'text') {
+    elements.voicePanel.classList.remove('active');
+    loadMessages();
+  } else {
+    elements.messagesArea.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🔊</div>
+        <h3>${channelName}</h3>
+        <p>Voice Channel • Click connect to join the conversation</p>
+        <button class="input-btn" style="margin-top:16px;" onclick="joinVoiceChannel('${channelName}')">Connect</button>
+      </div>
+    `;
+  }
+}
+
+function createChannel() {
+  const name = document.getElementById('channelNameInput').value.trim().toLowerCase().replace(/\s+/g, '-');
+  if (!name) {
+    showToast('Please enter a channel name', 'error');
+    return;
+  }
+
+  if (!hasPermission('manage_channels')) {
+    showToast('You do not have permission to create channels', 'error');
+    return;
+  }
+
+  db.ref(`servers/${currentServer}/channels/${name}`).set(true).then(() => {
+    hideModal('addChannel');
+    document.getElementById('channelNameInput').value = '';
+    showToast(`Channel #${name} created`, 'success');
+  });
+}
+
+function createVoiceChannel() {
+  const name = document.getElementById('voiceChannelNameInput').value.trim();
+  const limit = parseInt(document.getElementById('voiceChannelLimit').value) || 0;
+
+  if (!name) {
+    showToast('Please enter a channel name', 'error');
+    return;
+  }
+
+  if (!hasPermission('manage_channels')) {
+    showToast('You do not have permission to create channels', 'error');
+    return;
+  }
+
+  db.ref(`servers/${currentServer}/voiceChannels/${name}`).set({
+    limit: limit,
+    createdAt: Date.now()
+  }).then(() => {
+    hideModal('addVoiceChannel');
+    document.getElementById('voiceChannelNameInput').value = '';
+    document.getElementById('voiceChannelLimit').value = '';
+    showToast(`Voice channel ${name} created`, 'success');
+  });
+}
+
+function deleteChannel() {
+  const channelName = document.getElementById('channelSelect').value;
+  if (!channelName) return;
+
+  if (channelName === 'general') {
+    showToast('Cannot delete the general channel', 'error');
+    return;
+  }
+
+  if (!confirm(`Are you sure you want to delete #${channelName}?`)) return;
+
+  const isVoice = document.getElementById('channelSelect').options[document.getElementById('channelSelect').selectedIndex].dataset.type === 'voice';
+
+  if (isVoice) {
+    db.ref(`servers/${currentServer}/voiceChannels/${channelName}`).remove();
+  } else {
+    db.ref(`servers/${currentServer}/channels/${channelName}`).remove();
+    db.ref(`servers/${currentServer}/channels_data/${channelName}`).remove();
+  }
+
+  hideModal('manageChannels');
+  if (currentChannel === channelName) {
+    currentChannel = null;
+    loadChannels();
+  }
+  showToast('Channel deleted', 'success');
+}
+
+function toggleCategory(header) {
+  const list = header.nextElementSibling;
+  const arrow = header.querySelector('span:first-child');
+  if (list.style.display === 'none') {
+    list.style.display = 'block';
+    arrow.textContent = '▼';
+  } else {
+    list.style.display = 'none';
+    arrow.textContent = '▶';
+  }
+}
+
+// Voice Channel Functions
+function joinVoiceChannel(channelName) {
+  if (!currentServer) return;
+
+  // Leave current voice channel if in one
+  if (inVoiceChannel) {
+    disconnectVoice();
+  }
+
+  currentVoiceChannel = channelName;
+  inVoiceChannel = true;
+
+  // Add to voice channel users
+  db.ref(`servers/${currentServer}/voiceChannels_data/${channelName}/users/${currentUser.uid}`).set({
+    username: userProfile.username,
+    avatar: userProfile.avatar,
+    muted: false,
+    deafened: false,
+    joinedAt: Date.now()
+  });
+
+  // Update UI
+  elements.voicePanel.classList.add('active');
+  elements.voiceChannelName.textContent = channelName;
+  currentChannel = channelName;
+  currentChannelType = 'voice';
+
+  // Listen for voice users
+  db.ref(`servers/${currentServer}/voiceChannels_data/${channelName}/users`).on('value', snapshot => {
+    const users = snapshot.val() || {};
+    elements.voiceUsersDisplay.innerHTML = '';
+
+    Object.entries(users).forEach(([uid, userData]) => {
+      const div = document.createElement('div');
+      div.className = 'voice-participant';
+      div.innerHTML = `
+        <div class="voice-participant-avatar ${userData.speaking ? 'speaking' : ''}" id="voice-avatar-${uid}">
+          ${userData.avatar ? `<img src="${userData.avatar}">` : (userData.username ? userData.username.charAt(0).toUpperCase() : '?')}
+        </div>
+        <div class="voice-participant-name">${userData.username || 'Unknown'}</div>
+      `;
+      elements.voiceUsersDisplay.appendChild(div);
+    });
+  });
+
+  showToast(`Connected to ${channelName}`, 'success');
+}
+
+function disconnectVoice() {
+  if (!inVoiceChannel || !currentServer) return;
+
+  db.ref(`servers/${currentServer}/voiceChannels_data/${currentVoiceChannel}/users/${currentUser.uid}`).remove();
+  db.ref(`servers/${currentServer}/voiceChannels_data/${currentVoiceChannel}/users`).off();
+
+  inVoiceChannel = false;
+  currentVoiceChannel = null;
+  elements.voicePanel.classList.remove('active');
+
+  // Switch back to text view
+  if (currentChannelType === 'voice') {
+    elements.messagesArea.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">#</div>
+        <h3>Select a text channel</h3>
+        <p>Choose a channel from the sidebar to view messages</p>
+      </div>
+    `;
+  }
+}
+
+function toggleVoiceMute() {
+  isMuted = !isMuted;
+  const btn = document.getElementById('voiceMuteBtn');
+  btn.classList.toggle('active', isMuted);
+  btn.innerHTML = isMuted ? '🔇' : '🎤';
+
+  if (inVoiceChannel && currentServer) {
+    db.ref(`servers/${currentServer}/voiceChannels_data/${currentVoiceChannel}/users/${currentUser.uid}/muted`).set(isMuted);
+  }
+}
+
+function toggleDeafen() {
+  isDeafened = !isDeafened;
+  const btn = document.getElementById('voiceDeafenBtn');
+  btn.classList.toggle('active', isDeafened);
+
+  if (inVoiceChannel && currentServer) {
+    db.ref(`servers/${currentServer}/voiceChannels_data/${currentVoiceChannel}/users/${currentUser.uid}/deafened`).set(isDeafened);
+  }
+}
+
+function toggleMute() {
+  // Global mute toggle
+  const btn = document.getElementById('micBtn');
+  btn.style.color = btn.style.color === 'rgb(237, 66, 69)' ? '#b5bac1' : '#ed4245';
+}
+
+// Messaging
+function loadMessages() {
+  if (!currentServer || !currentChannel || currentChannelType !== 'text') return;
+
+  elements.messagesArea.innerHTML = '';
+  document.getElementById('welcomeMessage').style.display = 'none';
+
+  // Remove old listeners
+  messageListeners.forEach(ref => ref.off());
+  messageListeners = [];
+
+  const messagesRef = db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`);
+  messageListeners.push(messagesRef);
+
+  messagesRef.on('child_added', (snap) => {
+    const msg = snap.val();
+    if (msg) displayMessage(snap.key, msg);
+  });
+
+  messagesRef.on('child_removed', (snap) => {
+    const el = document.getElementById(`msg-${snap.key}`);
+    if (el) el.remove();
+  });
+
+  // Typing indicator
+  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing`).on('value', (snap) => {
+    const typers = snap.val() || {};
+    const names = Object.values(typers)
+      .filter(t => t.timestamp > Date.now() - 5000 && t.username !== userProfile.username)
+      .map(t => t.username);
+
+    if (names.length > 0) {
+      elements.typingIndicator.classList.add('active');
+      const text = names.length === 1 ? `${names[0]} is typing...` :
+        names.length === 2 ? `${names[0]} and ${names[1]} are typing...` :
+          'Several people are typing...';
+      document.getElementById('typingText').textContent = text;
+    } else {
+      elements.typingIndicator.classList.remove('active');
+    }
+  });
+}
+
+function displayMessage(key, msg) {
+  const div = document.createElement('div');
+  div.className = 'message';
+  div.id = `msg-${key}`;
+
+  const isSystem = msg.uid === 'system';
+  const canDelete = !isSystem && (msg.uid === currentUser?.uid || hasPermission('manage_messages'));
+
+  const roleBadge = msg.role && msg.role !== 'Member' && msg.role !== 'System'
+    ? `<span class="role-badge" style="background:${msg.roleColor || '#5865f2'}">${msg.role}</span>`
+    : isSystem ? `<span class="role-badge" style="background:#23a559">SYSTEM</span>` : '';
+
+  let content = '';
+  if (msg.text) {
+    content = `<div class="message-text">${escapeHtml(msg.text)}</div>`;
+  } else if (msg.image) {
+    content = `<img src="${msg.image}" class="message-image" onclick="window.open('${msg.image}')">`;
+  }
+
+  const time = msg.time || new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  div.innerHTML = `
+    <div class="message-avatar" style="background:${isSystem ? '#23a559' : (msg.roleColor || '#5865f2')}">
+      ${msg.avatar ? `<img src="${msg.avatar}">` : (msg.author ? msg.author.charAt(0).toUpperCase() : '?')}
+    </div>
+    <div class="message-content">
+      <div class="message-header">
+        <span class="message-author" style="color:${isSystem ? '#23a559' : '#f2f3f5'}">${escapeHtml(msg.author || 'Unknown')}</span>
+        ${roleBadge}
+        <span class="message-timestamp">${time}</span>
+      </div>
+      ${content}
+    </div>
+    ${canDelete ? `
+      <div class="message-actions">
+        <button class="action-btn delete" onclick="deleteMessage('${key}')" title="Delete">🗑️</button>
+      </div>
+    ` : ''}
+  `;
+
+  elements.messagesArea.appendChild(div);
+  elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
+}
+
+function sendMessage() {
+  if (!currentServer || !currentChannel || currentChannelType !== 'text') return;
+
+  const text = elements.messageInput.value.trim();
+  if (!text) return;
+
+  if (!canSendMessage()) {
+    showToast('You do not have permission to send messages here', 'error');
+    return;
+  }
+
+  const msgRef = db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`);
+  msgRef.push({
+    author: userProfile.username,
+    text: text,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    timestamp: Date.now(),
+    avatar: userProfile.avatar,
+    role: userProfile.role,
+    roleColor: getRoleColor(userProfile.role),
+    uid: currentUser.uid
+  });
+
+  elements.messageInput.value = '';
+  elements.charCount.textContent = '0/2000';
+  elements.charCount.className = 'char-count';
+
+  // Clear typing indicator
+  clearTimeout(typingTimeout);
+  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).remove();
+}
+
+function handleImageUpload(e) {
+  const file = e.target.files[0];
+  if (!file || !currentServer || !currentChannel) return;
+
+  if (!canSendMessage()) {
+    showToast('You do not have permission to send images here', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`).push({
+      author: userProfile.username,
+      image: evt.target.result,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      avatar: userProfile.avatar,
+      role: userProfile.role,
+      roleColor: getRoleColor(userProfile.role),
+      uid: currentUser.uid
+    });
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+function deleteMessage(key) {
+  if (!currentServer || !currentChannel) return;
+  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages/${key}`).remove();
+}
+
+function canSendMessage() {
+  // Simplified permission check - in real app, check channel permissions
+  return true;
+}
+
+// User Management
+function saveSettings() {
+  const username = document.getElementById('usernameInput').value.trim();
+  const status = document.getElementById('statusSelect').value;
+  const avatarFile = document.getElementById('avatarInput').files[0];
+
+  if (username && username !== userProfile.username) {
+    // Check uniqueness
+    db.ref('users').once('value').then(snap => {
+      const users = snap.val() || {};
+      const exists = Object.entries(users).some(([uid, name]) => name === username && uid !== currentUser.uid);
+      if (exists) {
+        showToast('Username already taken', 'error');
+        return;
+      }
+
+      userProfile.username = username;
+      userProfile.status = status;
+
+      db.ref(`users/${currentUser.uid}`).set(username);
+      updateMemberData();
+      updateUserDisplay();
+      saveCookies();
+
+      if (avatarFile) {
+        uploadAvatar(avatarFile);
+      } else {
+        hideModal('settings');
+        showToast('Settings saved', 'success');
+      }
+    });
+  } else {
+    userProfile.status = status;
+    if (avatarFile) {
+      uploadAvatar(avatarFile);
+    } else {
+      updateMemberData();
+      updateUserDisplay();
+      saveCookies();
+      hideModal('settings');
+      showToast('Settings saved', 'success');
+    }
+  }
+}
+
+function uploadAvatar(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    userProfile.avatar = e.target.result;
+    updateMemberData();
+    updateUserDisplay();
+    saveCookies();
+    hideModal('settings');
+    showToast('Avatar updated', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function updateMemberData() {
+  if (!currentServer) return;
+  db.ref(`servers/${currentServer}/members/${currentUser.uid}`).update({
+    username: userProfile.username,
+    avatar: userProfile.avatar,
+    status: userProfile.status
+  });
+}
+
+function loadMemberList() {
+  if (!currentServer) return;
+
+  db.ref(`servers/${currentServer}/members`).on('value', snapshot => {
+    const members = snapshot.val() || {};
+    elements.membersContainer.innerHTML = '';
+
+    // Group by role
+    const roleGroups = { Admin: [], Moderator: [], Member: [] };
+    Object.entries(members).forEach(([uid, data]) => {
+      const role = data.role || 'Member';
+      if (!roleGroups[role]) roleGroups[role] = [];
+      roleGroups[role].push({ uid, ...data });
+    });
+
+    // Display by role importance
+    ['Admin', 'Moderator', 'Member'].forEach(role => {
+      const membersList = roleGroups[role] || [];
+      if (membersList.length === 0) return;
+
+      const categoryDiv = document.createElement('div');
+      categoryDiv.className = 'member-category';
+      categoryDiv.innerHTML = `
+        <div class="member-category-header">
+          ${role} — ${membersList.length}
+        </div>
+      `;
+
+      membersList.forEach(member => {
+        const isOnline = member.status === 'online' || (member.lastSeen && Date.now() - member.lastSeen < 60000);
+        const statusClass = member.status === 'idle' ? 'idle' : member.status === 'dnd' ? 'dnd' : isOnline ? '' : 'offline';
+
+        const memberDiv = document.createElement('div');
+        memberDiv.className = 'member-item';
+        memberDiv.innerHTML = `
+          <div class="member-avatar" style="background:${getRoleColor(member.role)}">
+            ${member.avatar ? `<img src="${member.avatar}">` : (member.username ? member.username.charAt(0).toUpperCase() : '?')}
+            <div class="member-status ${statusClass}"></div>
+          </div>
+          <div class="member-info">
+            <div class="member-name">${member.username || 'Unknown'}</div>
+            ${member.status && member.status !== 'online' ? `<div class="member-status-text">${member.status}</div>` : ''}
+          </div>
+        `;
+        categoryDiv.appendChild(memberDiv);
+      });
+
+      elements.membersContainer.appendChild(categoryDiv);
+    });
+  });
+}
+
+function toggleMemberList() {
+  const isVisible = elements.memberList.style.display !== 'none';
+  elements.memberList.style.display = isVisible ? 'none' : 'block';
+  if (!isVisible) loadMemberList();
+}
+
+function manageRoles() {
+  if (!hasPermission('manage_roles')) {
+    showToast('You do not have permission to manage roles', 'error');
+    return;
+  }
+
+  const username = prompt('Enter username to change role:');
+  if (!username) return;
+
+  db.ref(`servers/${currentServer}/members`).once('value').then(snapshot => {
+    const members = snapshot.val() || {};
+    const target = Object.entries(members).find(([uid, data]) => data.username?.toLowerCase() === username.toLowerCase());
+
+    if (!target) {
+      showToast('User not found', 'error');
+      return;
+    }
+
+    const [targetUid, targetData] = target;
+    const newRole = prompt(`Current role: ${targetData.role}\n\nNew role (Admin/Moderator/Member):`);
+    if (newRole && ['Admin', 'Moderator', 'Member'].includes(newRole)) {
+      db.ref(`servers/${currentServer}/members/${targetUid}/role`).set(newRole);
+      showToast(`${username} is now ${newRole}`, 'success');
+    }
+  });
+}
+
+// Permissions
+function hasPermission(permission) {
+  if (userProfile.role === 'Admin') return true;
+  // Simplified - in real app, check role permissions from server data
+  return false;
+}
+
+function getRoleColor(role) {
+  const colors = {
+    Admin: '#f23f43',
+    Moderator: '#5865f2',
+    Member: '#949ba4',
+    System: '#23a559'
+  };
+  return colors[role] || '#5865f2';
+}
+
+// Channel Permissions
+function loadChannelPermissions() {
+  const select = document.getElementById('channelSelect');
+  const channelName = select.value;
+  const isVoice = select.options[select.selectedIndex].dataset.type === 'voice';
+
+  if (!channelName) return;
+
+  db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).once('value').then(snap => {
+    const perms = snap.val() || {};
+    document.getElementById('viewAdmin').checked = (perms.requiredRolesToView || []).includes('Admin');
+    document.getElementById('viewModerator').checked = (perms.requiredRolesToView || []).includes('Moderator');
+    document.getElementById('viewMember').checked = (perms.requiredRolesToView || []).includes('Member');
+    document.getElementById('sendAdmin').checked = (perms.requiredRolesToSend || []).includes('Admin');
+    document.getElementById('sendModerator').checked = (perms.requiredRolesToSend || []).includes('Moderator');
+    document.getElementById('sendMember').checked = (perms.requiredRolesToSend || []).includes('Member');
+  });
+}
+
+function saveChannelPermissions() {
+  const channelName = document.getElementById('channelSelect').value;
+  const viewRoles = [];
+  const sendRoles = [];
+
+  if (document.getElementById('viewAdmin').checked) viewRoles.push('Admin');
+  if (document.getElementById('viewModerator').checked) viewRoles.push('Moderator');
+  if (document.getElementById('viewMember').checked) viewRoles.push('Member');
+
+  if (document.getElementById('sendAdmin').checked) sendRoles.push('Admin');
+  if (document.getElementById('sendModerator').checked) sendRoles.push('Moderator');
+  if (document.getElementById('sendMember').checked) sendRoles.push('Member');
+
+  db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).set({
+    requiredRolesToView: viewRoles,
+    requiredRolesToSend: sendRoles
+  }).then(() => {
+    hideModal('manageChannels');
+    showToast('Permissions saved', 'success');
+    loadChannels();
+  });
+}
+
+// UI Helpers
+function showModal(modalName) {
+  const modal = document.getElementById(`${modalName}Modal`);
+  if (!modal) return;
+
+  modal.classList.add('active');
+
+  if (modalName === 'invite') {
+    if (currentServer) {
+      db.ref(`servers/${currentServer}/invite`).once('value').then(snap => {
+        let code = snap.val();
+        if (!code) {
+          code = generateInviteCode();
+          db.ref(`servers/${currentServer}/invite`).set(code);
+        }
+        document.getElementById('inviteCode').textContent = code;
+      });
+    }
+  } else if (modalName === 'manageChannels') {
+    if (!hasPermission('manage_channels')) {
+      showToast('You do not have permission to manage channels', 'error');
+      hideModal('manageChannels');
+      return;
+    }
+
+    // Populate channel select
+    const select = document.getElementById('channelSelect');
+    select.innerHTML = '';
+
+    db.ref(`servers/${currentServer}/channels`).once('value').then(snap => {
+      const channels = snap.val() || {};
+      Object.keys(channels).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `# ${name}`;
+        opt.dataset.type = 'text';
+        select.appendChild(opt);
+      });
+
+      if (Object.keys(channels).length > 0) loadChannelPermissions();
+    });
+
+    db.ref(`servers/${currentServer}/voiceChannels`).once('value').then(snap => {
+      const channels = snap.val() || {};
+      Object.keys(channels).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `🔊 ${name}`;
+        opt.dataset.type = 'voice';
+        select.appendChild(opt);
+      });
+    });
+  }
+}
+
+function hideModal(modalName) {
+  const modal = document.getElementById(`${modalName}Modal`);
+  if (modal) modal.classList.remove('active');
+}
+
+function showServerMenu(event) {
+  event.stopPropagation();
+  const menu = document.getElementById('serverMenu');
+  const rect = event.currentTarget.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + 5}px`;
+  menu.style.left = `${rect.left}px`;
+  menu.classList.toggle('active');
+}
+
+function generateInviteCode() {
+  return Math.random().toString(36).substr(2, 8).toUpperCase();
+}
+
+function copyInviteCode() {
+  const code = document.getElementById('inviteCode').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+    <span>${message}</span>
+  `;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function startPresenceUpdates() {
+  setInterval(() => {
+    if (currentUser && currentServer) {
+      db.ref(`servers/${currentServer}/members/${currentUser.uid}`).update({
+        status: userProfile.status,
+        lastSeen: Date.now()
+      });
+    }
+  }, 30000);
+}
+</script>
+</body>
+</html>

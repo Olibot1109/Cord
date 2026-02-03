@@ -1212,19 +1212,6 @@ body {
   to { transform: translateX(0); opacity: 1; }
 }
 
-/* Loading states */
-.loading-skeleton {
-  background: linear-gradient(90deg, #2b2d31 25%, #35363c 50%, #2b2d31 75%);
-  background-size: 200% 100%;
-  animation: loading 1.5s infinite;
-  border-radius: 4px;
-}
-
-@keyframes loading {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
 /* Empty state */
 .empty-state {
   display: flex;
@@ -1258,7 +1245,6 @@ body {
   .channel-sidebar { display: none; }
 }
 </style>
-<base target="_blank">
 </head>
 <body>
 
@@ -1500,8 +1486,8 @@ body {
 <div class="modal-overlay" id="inviteModal">
   <div class="modal-content">
     <div class="modal-header">
-      <div class="modal-title">Invite Friends</div>
-      <div class="modal-subtitle">Share your server with others</div>
+      <div class="modal-title" id="inviteModalTitle">Invite Friends</div>
+      <div class="modal-subtitle" id="inviteModalSubtitle">Share your server with others</div>
     </div>
     <div class="modal-body">
       <div class="invite-section" id="inviteSection">
@@ -1511,14 +1497,14 @@ body {
           <button class="copy-btn" onclick="copyInviteCode()">Copy</button>
         </div>
       </div>
-      <div class="modal-input-group">
+      <div class="modal-input-group" id="joinSection">
         <label class="modal-label">Or join a server</label>
         <input type="text" class="modal-input" id="joinCodeInput" placeholder="Enter invite code (e.g., ABC12345)" maxlength="8">
       </div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn secondary" onclick="hideModal('invite')">Close</button>
-      <button class="modal-btn primary" onclick="joinServer()">Join Server</button>
+      <button class="modal-btn secondary" onclick="closeInviteModal()" id="inviteCloseBtn">Close</button>
+      <button class="modal-btn primary" onclick="joinServer()" id="inviteJoinBtn">Join Server</button>
     </div>
   </div>
 </div>
@@ -1633,6 +1619,7 @@ let isMuted = false;
 let isDeafened = false;
 let messageListeners = [];
 let typingTimeout = null;
+let cameFromWelcome = false;
 
 // DOM Elements
 const elements = {
@@ -2777,16 +2764,7 @@ function showModal(modalName) {
   modal.classList.add('active');
 
   if (modalName === 'invite') {
-    if (currentServer) {
-      db.ref(`servers/${currentServer}/invite`).once('value').then(snap => {
-        let code = snap.val();
-        if (!code) {
-          code = generateInviteCode();
-          db.ref(`servers/${currentServer}/invite`).set(code);
-        }
-        document.getElementById('inviteCode').textContent = code;
-      });
-    }
+    setupInviteModal();
   } else if (modalName === 'manageChannels') {
     if (!hasPermission('manage_channels')) {
       showToast('You do not have permission to manage channels', 'error');
@@ -2822,6 +2800,47 @@ function showModal(modalName) {
       });
     });
   }
+}
+
+function setupInviteModal() {
+  const inviteSection = document.getElementById('inviteSection');
+  const joinSection = document.getElementById('joinSection');
+  const closeBtn = document.getElementById('inviteCloseBtn');
+  const joinBtn = document.getElementById('inviteJoinBtn');
+  const title = document.getElementById('inviteModalTitle');
+  const subtitle = document.getElementById('inviteModalSubtitle');
+
+  if (currentServer) {
+    // User is in a server - show invite code and join option
+    inviteSection.style.display = 'block';
+    joinSection.style.display = 'block';
+    joinBtn.style.display = 'inline-block';
+    closeBtn.textContent = 'Close';
+    title.textContent = 'Invite Friends';
+    subtitle.textContent = 'Share your server with others';
+
+    db.ref(`servers/${currentServer}/invite`).once('value').then(snap => {
+      let code = snap.val();
+      if (!code) {
+        code = generateInviteCode();
+        db.ref(`servers/${currentServer}/invite`).set(code);
+      }
+      document.getElementById('inviteCode').textContent = code;
+    });
+  } else {
+    // User is not in a server - show only join option
+    inviteSection.style.display = 'none';
+    joinSection.style.display = 'block';
+    joinBtn.style.display = 'inline-block';
+    closeBtn.textContent = 'Cancel';
+    title.textContent = 'Join a Server';
+    subtitle.textContent = 'Enter an invite code to join an existing server';
+  }
+}
+
+function closeInviteModal() {
+  hideModal('invite');
+  document.getElementById('joinCodeInput').value = '';
 }
 
 function hideModal(modalName) {

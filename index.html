@@ -1723,8 +1723,10 @@ function updateUserDisplay() {
     elements.userAvatarText.textContent = userProfile.username.charAt(0).toUpperCase();
   }
 
-  document.getElementById('usernameInput').value = userProfile.username;
-  document.getElementById('statusSelect').value = userProfile.status;
+  const usernameInput = document.getElementById('usernameInput');
+  const statusSelect = document.getElementById('statusSelect');
+  if (usernameInput) usernameInput.value = userProfile.username;
+  if (statusSelect) statusSelect.value = userProfile.status;
 }
 
 function setupEventListeners() {
@@ -1779,19 +1781,26 @@ function setupFileInputs() {
   const avatarInput = document.getElementById('avatarInput');
   const serverIconInput = document.getElementById('serverIconInput');
 
-  avatarInput.addEventListener('change', (e) => {
-    if (e.target.files[0]) {
-      document.getElementById('avatarLabel').textContent = `Selected: ${e.target.files[0].name}`;
-    }
-  });
+  if (avatarInput) {
+    avatarInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) {
+        const avatarLabel = document.getElementById('avatarLabel');
+        if (avatarLabel) avatarLabel.textContent = `Selected: ${e.target.files[0].name}`;
+      }
+    });
+  }
 
-  serverIconInput.addEventListener('change', (e) => {
-    if (e.target.files[0]) {
-      document.getElementById('serverIconLabel').textContent = `Selected: ${e.target.files[0].name}`;
-    }
-  });
+  if (serverIconInput) {
+    serverIconInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) {
+        const serverIconLabel = document.getElementById('serverIconLabel');
+        if (serverIconLabel) serverIconLabel.textContent = `Selected: ${e.target.files[0].name}`;
+      }
+    });
+  }
 
-  document.getElementById('imageInput').addEventListener('change', handleImageUpload);
+  const imageInput = document.getElementById('imageInput');
+  if (imageInput) imageInput.addEventListener('change', handleImageUpload);
 }
 
 // Server Management
@@ -1854,10 +1863,14 @@ function selectServer(serverId) {
   db.ref(`servers/${serverId}`).once('value').then(snap => {
     if (snap.exists()) {
       const data = snap.val();
-      elements.serverName.textContent = data.name || 'Server';
-      document.getElementById('welcomeServerName').textContent = data.name || 'Discord Clone';
-      document.getElementById('addChannelServerName').textContent = data.name || 'Server';
-      document.getElementById('addVoiceChannelServerName').textContent = data.name || 'Server';
+      
+      if (elements.serverName) elements.serverName.textContent = data.name || 'Server';
+      
+      const addChannelServerName = document.getElementById('addChannelServerName');
+      if (addChannelServerName) addChannelServerName.textContent = data.name || 'Server';
+      
+      const addVoiceChannelServerName = document.getElementById('addVoiceChannelServerName');
+      if (addVoiceChannelServerName) addVoiceChannelServerName.textContent = data.name || 'Server';
 
       // Ensure member exists
       db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value').then(memberSnap => {
@@ -1877,6 +1890,7 @@ function selectServer(serverId) {
       });
 
       loadChannels();
+      
       if (elements.memberList.style.display !== 'none') {
         loadMemberList();
       }
@@ -1887,7 +1901,7 @@ function selectServer(serverId) {
 function goHome() {
   currentServer = null;
   currentChannel = null;
-  elements.serverName.textContent = 'Home';
+  if (elements.serverName) elements.serverName.textContent = 'Home';
   elements.textChannelsList.innerHTML = '';
   elements.voiceChannelsList.innerHTML = '';
   elements.messagesArea.innerHTML = `
@@ -1900,18 +1914,22 @@ function goHome() {
   elements.messageInput.disabled = true;
   elements.messageInput.placeholder = 'Select a server to send messages';
   document.querySelectorAll('.server-icon').forEach(icon => icon.classList.remove('active'));
-  document.querySelector('.server-icon.home').classList.add('active');
+  const homeIcon = document.querySelector('.server-icon.home');
+  if (homeIcon) homeIcon.classList.add('active');
 }
 
 function createServer() {
-  const name = document.getElementById('serverNameInput').value.trim();
+  const serverNameInput = document.getElementById('serverNameInput');
+  const name = serverNameInput ? serverNameInput.value.trim() : '';
+  
   if (!name) {
     showToast('Please enter a server name', 'error');
     return;
   }
 
   const serverId = 'server_' + Date.now();
-  const file = document.getElementById('serverIconInput').files[0];
+  const serverIconInput = document.getElementById('serverIconInput');
+  const file = serverIconInput ? serverIconInput.files[0] : null;
 
   const finalizeCreation = (iconUrl = null) => {
     const serverData = {
@@ -1959,9 +1977,12 @@ function createServer() {
       loadUserServers();
       selectServer(serverId);
       hideModal('addServer');
-      document.getElementById('serverNameInput').value = '';
-      document.getElementById('serverIconInput').value = '';
-      document.getElementById('serverIconLabel').textContent = 'Click to upload server icon';
+      
+      if (serverNameInput) serverNameInput.value = '';
+      if (serverIconInput) serverIconInput.value = '';
+      const serverIconLabel = document.getElementById('serverIconLabel');
+      if (serverIconLabel) serverIconLabel.textContent = 'Click to upload server icon';
+      
       showToast('Server created successfully!', 'success');
     });
   };
@@ -1976,7 +1997,9 @@ function createServer() {
 }
 
 function joinServer() {
-  const code = document.getElementById('joinCodeInput').value.trim().toUpperCase();
+  const joinCodeInput = document.getElementById('joinCodeInput');
+  const code = joinCodeInput ? joinCodeInput.value.trim().toUpperCase() : '';
+  
   if (!code) {
     showToast('Please enter an invite code', 'error');
     return;
@@ -2024,7 +2047,8 @@ function joinServer() {
     loadUserServers();
     selectServer(foundServer);
     hideModal('invite');
-    document.getElementById('joinCodeInput').value = '';
+    
+    if (joinCodeInput) joinCodeInput.value = '';
     showToast('Successfully joined server!', 'success');
   });
 }
@@ -2189,10 +2213,11 @@ function switchChannel(channelName, type) {
   elements.currentChannelName.textContent = channelName;
   elements.headerIcon.textContent = type === 'voice' ? '🔊' : '#';
   elements.messageInput.placeholder = `Message #${channelName}`;
+  elements.messageInput.disabled = false;
 
   // Update UI
   document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
-  event?.currentTarget?.classList.add('active');
+  if (event && event.currentTarget) event.currentTarget.classList.add('active');
 
   if (type === 'text') {
     elements.voicePanel.classList.remove('active');
@@ -2210,7 +2235,9 @@ function switchChannel(channelName, type) {
 }
 
 function createChannel() {
-  const name = document.getElementById('channelNameInput').value.trim().toLowerCase().replace(/\s+/g, '-');
+  const channelNameInput = document.getElementById('channelNameInput');
+  const name = channelNameInput ? channelNameInput.value.trim().toLowerCase().replace(/\s+/g, '-') : '';
+  
   if (!name) {
     showToast('Please enter a channel name', 'error');
     return;
@@ -2223,14 +2250,17 @@ function createChannel() {
 
   db.ref(`servers/${currentServer}/channels/${name}`).set(true).then(() => {
     hideModal('addChannel');
-    document.getElementById('channelNameInput').value = '';
+    if (channelNameInput) channelNameInput.value = '';
     showToast(`Channel #${name} created`, 'success');
   });
 }
 
 function createVoiceChannel() {
-  const name = document.getElementById('voiceChannelNameInput').value.trim();
-  const limit = parseInt(document.getElementById('voiceChannelLimit').value) || 0;
+  const voiceChannelNameInput = document.getElementById('voiceChannelNameInput');
+  const voiceChannelLimit = document.getElementById('voiceChannelLimit');
+  
+  const name = voiceChannelNameInput ? voiceChannelNameInput.value.trim() : '';
+  const limit = voiceChannelLimit ? parseInt(voiceChannelLimit.value) || 0 : 0;
 
   if (!name) {
     showToast('Please enter a channel name', 'error');
@@ -2247,14 +2277,16 @@ function createVoiceChannel() {
     createdAt: Date.now()
   }).then(() => {
     hideModal('addVoiceChannel');
-    document.getElementById('voiceChannelNameInput').value = '';
-    document.getElementById('voiceChannelLimit').value = '';
+    if (voiceChannelNameInput) voiceChannelNameInput.value = '';
+    if (voiceChannelLimit) voiceChannelLimit.value = '';
     showToast(`Voice channel ${name} created`, 'success');
   });
 }
 
 function deleteChannel() {
-  const channelName = document.getElementById('channelSelect').value;
+  const channelSelect = document.getElementById('channelSelect');
+  const channelName = channelSelect ? channelSelect.value : '';
+  
   if (!channelName) return;
 
   if (channelName === 'general') {
@@ -2264,7 +2296,8 @@ function deleteChannel() {
 
   if (!confirm(`Are you sure you want to delete #${channelName}?`)) return;
 
-  const isVoice = document.getElementById('channelSelect').options[document.getElementById('channelSelect').selectedIndex].dataset.type === 'voice';
+  const selectedOption = channelSelect.options[channelSelect.selectedIndex];
+  const isVoice = selectedOption ? selectedOption.dataset.type === 'voice' : false;
 
   if (isVoice) {
     db.ref(`servers/${currentServer}/voiceChannels/${channelName}`).remove();
@@ -2284,6 +2317,8 @@ function deleteChannel() {
 function toggleCategory(header) {
   const list = header.nextElementSibling;
   const arrow = header.querySelector('span:first-child');
+  if (!list || !arrow) return;
+  
   if (list.style.display === 'none') {
     list.style.display = 'block';
     arrow.textContent = '▼';
@@ -2366,8 +2401,10 @@ function disconnectVoice() {
 function toggleVoiceMute() {
   isMuted = !isMuted;
   const btn = document.getElementById('voiceMuteBtn');
-  btn.classList.toggle('active', isMuted);
-  btn.innerHTML = isMuted ? '🔇' : '🎤';
+  if (btn) {
+    btn.classList.toggle('active', isMuted);
+    btn.innerHTML = isMuted ? '🔇' : '🎤';
+  }
 
   if (inVoiceChannel && currentServer) {
     db.ref(`servers/${currentServer}/voiceChannels_data/${currentVoiceChannel}/users/${currentUser.uid}/muted`).set(isMuted);
@@ -2377,7 +2414,7 @@ function toggleVoiceMute() {
 function toggleDeafen() {
   isDeafened = !isDeafened;
   const btn = document.getElementById('voiceDeafenBtn');
-  btn.classList.toggle('active', isDeafened);
+  if (btn) btn.classList.toggle('active', isDeafened);
 
   if (inVoiceChannel && currentServer) {
     db.ref(`servers/${currentServer}/voiceChannels_data/${currentVoiceChannel}/users/${currentUser.uid}/deafened`).set(isDeafened);
@@ -2387,16 +2424,16 @@ function toggleDeafen() {
 function toggleMute() {
   // Global mute toggle
   const btn = document.getElementById('micBtn');
-  btn.style.color = btn.style.color === 'rgb(237, 66, 69)' ? '#b5bac1' : '#ed4245';
+  if (btn) {
+    btn.style.color = btn.style.color === 'rgb(237, 66, 69)' ? '#b5bac1' : '#ed4245';
+  }
 }
 
 // Messaging
 function loadMessages() {
   if (!currentServer || !currentChannel || currentChannelType !== 'text') return;
 
-  const messagesArea = document.getElementById('messagesArea');
-  messagesArea.innerHTML = '';
-  document.getElementById('welcomeMessage').style.display = 'none';
+  elements.messagesArea.innerHTML = '';
 
   // Remove old listeners
   messageListeners.forEach(ref => ref.off());
@@ -2425,19 +2462,18 @@ function loadMessages() {
       .map(t => t.username);
 
     if (names.length > 0) {
-      document.getElementById('typingIndicator').classList.add('active');
+      elements.typingIndicator.classList.add('active');
       const text = names.length === 1 ? `${names[0]} is typing...` :
         names.length === 2 ? `${names[0]} and ${names[1]} are typing...` :
           'Several people are typing...';
       document.getElementById('typingText').textContent = text;
     } else {
-      document.getElementById('typingIndicator').classList.remove('active');
+      elements.typingIndicator.classList.remove('active');
     }
   });
 }
 
 function addMessage(key, msg) {
-  const messagesArea = document.getElementById('messagesArea');
   const div = document.createElement('div');
   div.className = 'message';
   div.id = `msg-${key}`;
@@ -2477,19 +2513,17 @@ function addMessage(key, msg) {
     ` : ''}
   `;
 
-  messagesArea.appendChild(div);
-  messagesArea.scrollTop = messagesArea.scrollHeight;
+  elements.messagesArea.appendChild(div);
+  elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
 }
 
-// REPLACE THIS FUNCTION - sendMessage
 function sendMessage() {
   if (!currentServer || !currentChannel || currentChannelType !== 'text') {
     showToast('Select a text channel first', 'error');
     return;
   }
 
-  const input = document.getElementById('messageInput');
-  const text = input.value.trim();
+  const text = elements.messageInput.value.trim();
   if (!text) return;
 
   // Check permissions
@@ -2519,9 +2553,9 @@ function sendMessage() {
 
       db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`).push(messageData)
         .then(() => {
-          input.value = '';
-          document.getElementById('charCount').textContent = '0/2000';
-          document.getElementById('charCount').className = 'char-count';
+          elements.messageInput.value = '';
+          elements.charCount.textContent = '0/2000';
+          elements.charCount.className = 'char-count';
           
           // Clear typing indicator
           clearTimeout(typingTimeout);
@@ -2534,40 +2568,6 @@ function sendMessage() {
   });
 }
 
-
-function sendMessage() {
-  if (!currentServer || !currentChannel || currentChannelType !== 'text') return;
-
-  const text = elements.messageInput.value.trim();
-  if (!text) return;
-
-  if (!canSendMessage()) {
-    showToast('You do not have permission to send messages here', 'error');
-    return;
-  }
-
-  const msgRef = db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`);
-  msgRef.push({
-    author: userProfile.username,
-    text: text,
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    timestamp: Date.now(),
-    avatar: userProfile.avatar,
-    role: userProfile.role,
-    roleColor: getRoleColor(userProfile.role),
-    uid: currentUser.uid
-  });
-
-  elements.messageInput.value = '';
-  elements.charCount.textContent = '0/2000';
-  elements.charCount.className = 'char-count';
-
-  // Clear typing indicator
-  clearTimeout(typingTimeout);
-  db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).remove();
-}
-
-// REPLACE THIS FUNCTION - handleImageUpload
 function handleImageUpload(e) {
   const file = e.target.files[0];
   if (!file || !currentServer || !currentChannel) return;
@@ -2612,7 +2612,6 @@ function handleImageUpload(e) {
   e.target.value = '';
 }
 
-// REPLACE THIS FUNCTION - deleteMessage
 function deleteMessage(key) {
   if (!currentServer || !currentChannel) return;
   
@@ -2624,16 +2623,15 @@ function deleteMessage(key) {
     });
 }
 
-function canSendMessage() {
-  // Simplified permission check - in real app, check channel permissions
-  return true;
-}
-
 // User Management
 function saveSettings() {
-  const username = document.getElementById('usernameInput').value.trim();
-  const status = document.getElementById('statusSelect').value;
-  const avatarFile = document.getElementById('avatarInput').files[0];
+  const usernameInput = document.getElementById('usernameInput');
+  const statusSelect = document.getElementById('statusSelect');
+  const avatarInput = document.getElementById('avatarInput');
+  
+  const username = usernameInput ? usernameInput.value.trim() : '';
+  const status = statusSelect ? statusSelect.value : 'online';
+  const avatarFile = avatarInput ? avatarInput.files[0] : null;
 
   if (username && username !== userProfile.username) {
     // Check uniqueness
@@ -2800,35 +2798,56 @@ function getRoleColor(role) {
 
 // Channel Permissions
 function loadChannelPermissions() {
-  const select = document.getElementById('channelSelect');
-  const channelName = select.value;
-  const isVoice = select.options[select.selectedIndex].dataset.type === 'voice';
+  const channelSelect = document.getElementById('channelSelect');
+  if (!channelSelect) return;
+  
+  const channelName = channelSelect.value;
+  const selectedOption = channelSelect.options[channelSelect.selectedIndex];
+  const isVoice = selectedOption ? selectedOption.dataset.type === 'voice' : false;
 
   if (!channelName) return;
 
   db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).once('value').then(snap => {
     const perms = snap.val() || {};
-    document.getElementById('viewAdmin').checked = (perms.requiredRolesToView || []).includes('Admin');
-    document.getElementById('viewModerator').checked = (perms.requiredRolesToView || []).includes('Moderator');
-    document.getElementById('viewMember').checked = (perms.requiredRolesToView || []).includes('Member');
-    document.getElementById('sendAdmin').checked = (perms.requiredRolesToSend || []).includes('Admin');
-    document.getElementById('sendModerator').checked = (perms.requiredRolesToSend || []).includes('Moderator');
-    document.getElementById('sendMember').checked = (perms.requiredRolesToSend || []).includes('Member');
+    
+    const viewAdmin = document.getElementById('viewAdmin');
+    const viewModerator = document.getElementById('viewModerator');
+    const viewMember = document.getElementById('viewMember');
+    const sendAdmin = document.getElementById('sendAdmin');
+    const sendModerator = document.getElementById('sendModerator');
+    const sendMember = document.getElementById('sendMember');
+    
+    if (viewAdmin) viewAdmin.checked = (perms.requiredRolesToView || []).includes('Admin');
+    if (viewModerator) viewModerator.checked = (perms.requiredRolesToView || []).includes('Moderator');
+    if (viewMember) viewMember.checked = (perms.requiredRolesToView || []).includes('Member');
+    if (sendAdmin) sendAdmin.checked = (perms.requiredRolesToSend || []).includes('Admin');
+    if (sendModerator) sendModerator.checked = (perms.requiredRolesToSend || []).includes('Moderator');
+    if (sendMember) sendMember.checked = (perms.requiredRolesToSend || []).includes('Member');
   });
 }
 
 function saveChannelPermissions() {
-  const channelName = document.getElementById('channelSelect').value;
+  const channelSelect = document.getElementById('channelSelect');
+  if (!channelSelect) return;
+  
+  const channelName = channelSelect.value;
   const viewRoles = [];
   const sendRoles = [];
 
-  if (document.getElementById('viewAdmin').checked) viewRoles.push('Admin');
-  if (document.getElementById('viewModerator').checked) viewRoles.push('Moderator');
-  if (document.getElementById('viewMember').checked) viewRoles.push('Member');
+  const viewAdmin = document.getElementById('viewAdmin');
+  const viewModerator = document.getElementById('viewModerator');
+  const viewMember = document.getElementById('viewMember');
+  const sendAdmin = document.getElementById('sendAdmin');
+  const sendModerator = document.getElementById('sendModerator');
+  const sendMember = document.getElementById('sendMember');
 
-  if (document.getElementById('sendAdmin').checked) sendRoles.push('Admin');
-  if (document.getElementById('sendModerator').checked) sendRoles.push('Moderator');
-  if (document.getElementById('sendMember').checked) sendRoles.push('Member');
+  if (viewAdmin && viewAdmin.checked) viewRoles.push('Admin');
+  if (viewModerator && viewModerator.checked) viewRoles.push('Moderator');
+  if (viewMember && viewMember.checked) viewRoles.push('Member');
+
+  if (sendAdmin && sendAdmin.checked) sendRoles.push('Admin');
+  if (sendModerator && sendModerator.checked) sendRoles.push('Moderator');
+  if (sendMember && sendMember.checked) sendRoles.push('Member');
 
   db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).set({
     requiredRolesToView: viewRoles,
@@ -2857,8 +2876,10 @@ function showModal(modalName) {
     }
 
     // Populate channel select
-    const select = document.getElementById('channelSelect');
-    select.innerHTML = '';
+    const channelSelect = document.getElementById('channelSelect');
+    if (!channelSelect) return;
+    
+    channelSelect.innerHTML = '';
 
     db.ref(`servers/${currentServer}/channels`).once('value').then(snap => {
       const channels = snap.val() || {};
@@ -2867,7 +2888,7 @@ function showModal(modalName) {
         opt.value = name;
         opt.textContent = `# ${name}`;
         opt.dataset.type = 'text';
-        select.appendChild(opt);
+        channelSelect.appendChild(opt);
       });
 
       if (Object.keys(channels).length > 0) loadChannelPermissions();
@@ -2880,7 +2901,7 @@ function showModal(modalName) {
         opt.value = name;
         opt.textContent = `🔊 ${name}`;
         opt.dataset.type = 'voice';
-        select.appendChild(opt);
+        channelSelect.appendChild(opt);
       });
     });
   }
@@ -2896,12 +2917,12 @@ function setupInviteModal() {
 
   if (currentServer) {
     // User is in a server - show invite code and join option
-    inviteSection.style.display = 'block';
-    joinSection.style.display = 'block';
-    joinBtn.style.display = 'inline-block';
-    closeBtn.textContent = 'Close';
-    title.textContent = 'Invite Friends';
-    subtitle.textContent = 'Share your server with others';
+    if (inviteSection) inviteSection.style.display = 'block';
+    if (joinSection) joinSection.style.display = 'block';
+    if (joinBtn) joinBtn.style.display = 'inline-block';
+    if (closeBtn) closeBtn.textContent = 'Close';
+    if (title) title.textContent = 'Invite Friends';
+    if (subtitle) subtitle.textContent = 'Share your server with others';
 
     db.ref(`servers/${currentServer}/invite`).once('value').then(snap => {
       let code = snap.val();
@@ -2909,22 +2930,24 @@ function setupInviteModal() {
         code = generateInviteCode();
         db.ref(`servers/${currentServer}/invite`).set(code);
       }
-      document.getElementById('inviteCode').textContent = code;
+      const inviteCode = document.getElementById('inviteCode');
+      if (inviteCode) inviteCode.textContent = code;
     });
   } else {
     // User is not in a server - show only join option
-    inviteSection.style.display = 'none';
-    joinSection.style.display = 'block';
-    joinBtn.style.display = 'inline-block';
-    closeBtn.textContent = 'Cancel';
-    title.textContent = 'Join a Server';
-    subtitle.textContent = 'Enter an invite code to join an existing server';
+    if (inviteSection) inviteSection.style.display = 'none';
+    if (joinSection) joinSection.style.display = 'block';
+    if (joinBtn) joinBtn.style.display = 'inline-block';
+    if (closeBtn) closeBtn.textContent = 'Cancel';
+    if (title) title.textContent = 'Join a Server';
+    if (subtitle) subtitle.textContent = 'Enter an invite code to join an existing server';
   }
 }
 
 function closeInviteModal() {
   hideModal('invite');
-  document.getElementById('joinCodeInput').value = '';
+  const joinCodeInput = document.getElementById('joinCodeInput');
+  if (joinCodeInput) joinCodeInput.value = '';
 }
 
 function hideModal(modalName) {
@@ -2946,20 +2969,27 @@ function generateInviteCode() {
 }
 
 function copyInviteCode() {
-  const code = document.getElementById('inviteCode').textContent;
+  const inviteCode = document.getElementById('inviteCode');
+  if (!inviteCode) return;
+  
+  const code = inviteCode.textContent;
   navigator.clipboard.writeText(code).then(() => {
     const btn = document.querySelector('.copy-btn');
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => {
-      btn.textContent = 'Copy';
-      btn.classList.remove('copied');
-    }, 2000);
+    if (btn) {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    }
   });
 }
 
 function showToast(message, type = 'info') {
   const container = document.getElementById('toastContainer');
+  if (!container) return;
+  
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.innerHTML = `

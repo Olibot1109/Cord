@@ -1088,6 +1088,79 @@ body {
   background: #23a559;
 }
 
+/* Ban list styles */
+.ban-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #2b2d31;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.ban-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.ban-name {
+  font-weight: 600;
+  color: #f2f3f5;
+}
+
+.ban-reason {
+  font-size: 12px;
+  color: #949ba4;
+  margin-top: 2px;
+}
+
+.unban-btn {
+  background: #23a559;
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.unban-btn:hover {
+  background: #1a7f44;
+}
+
+.empty-text {
+  color: #949ba4;
+  text-align: center;
+  padding: 20px;
+}
+
+.loading-text {
+  color: #949ba4;
+  text-align: center;
+  padding: 20px;
+}
+
+/* User context menu positioning */
+#userContextMenu {
+  position: fixed;
+  min-width: 180px;
+}
+
+#userContextMenu .dropdown-item {
+  padding: 10px 12px;
+}
+
+/* Update server menu to include bans */
+.dropdown-item.bans {
+  color: #ed4245;
+}
+
+.dropdown-item.bans:hover {
+  background: #ed4245;
+  color: white;
+}
+
 /* Dropdown Menu */
 .dropdown-menu {
   position: absolute;
@@ -1361,6 +1434,61 @@ body {
   <div id="membersContainer"></div>
 </div>
 
+<!-- User Context Menu -->
+<div class="dropdown-menu" id="userContextMenu" style="position:fixed;display:none;z-index:1000;">
+  <div class="dropdown-item" id="contextRole" onclick="">
+    <span>👑</span> Change Role
+  </div>
+  <div class="dropdown-item" id="contextKick" style="color:#f0b232;" onclick="">
+    <span>👢</span> Kick
+  </div>
+  <div class="dropdown-item" id="contextBan" style="color:#f23f43;" onclick="">
+    <span>🔨</span> Ban
+  </div>
+</div>
+
+<!-- Role Change Modal -->
+<div class="modal-overlay" id="roleModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title" id="roleModalTitle">Change Role</div>
+      <div class="modal-subtitle">Select a new role for this user</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Role</label>
+        <select class="modal-input" id="roleSelect">
+          <option value="Member">Member</option>
+          <option value="Moderator">Moderator</option>
+          <option value="Admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('role')">Cancel</button>
+      <button class="modal-btn primary" onclick="changeUserRole()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bans Modal -->
+<div class="modal-overlay" id="bansModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Banned Users</div>
+      <div class="modal-subtitle">Manage banned users for this server</div>
+    </div>
+    <div class="modal-body">
+      <div id="banListContainer" style="max-height:300px;overflow-y:auto;">
+        <div class="empty-text" style="color:#949ba4;text-align:center;padding:20px;">No banned users</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('bans')">Close</button>
+    </div>
+  </div>
+</div>
+  
 <!-- Modals -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal-content">
@@ -1569,6 +1697,9 @@ body {
   <div class="dropdown-item" onclick="showModal('addVoiceChannel')">
     <span>🔊</span> Create Voice Channel
   </div>
+  <div class="dropdown-item bans" onclick="showModal('bans')">
+    <span>🔨</span> Banned Users
+  </div> 
   <div class="dropdown-item" onclick="showModal('manageChannels')">
     <span>⚙️</span> Channel Settings
   </div>
@@ -1619,7 +1750,8 @@ let isMuted = false;
 let isDeafened = false;
 let messageListeners = [];
 let typingTimeout = null;
-let cameFromWelcome = false;
+let selectedUserId = null;
+let selectedUserName = null;
 
 // DOM Elements
 const elements = {
@@ -1759,8 +1891,12 @@ function setupEventListeners() {
   // Close dropdowns on click outside
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('serverMenu');
-    if (!e.target.closest('.server-header') && menu.classList.contains('active')) {
+    const userContextMenu = document.getElementById('userContextMenu');
+    if (!e.target.closest('.server-header') && menu && menu.classList.contains('active')) {
       menu.classList.remove('active');
+    }
+    if (!e.target.closest('.member-item') && userContextMenu && userContextMenu.classList.contains('active')) {
+      userContextMenu.classList.remove('active');
     }
   });
 
@@ -1846,55 +1982,67 @@ function loadUserServers() {
 function selectServer(serverId) {
   if (!serverId) return;
 
-  currentServer = serverId;
-  currentChannel = null;
-  currentChannelType = 'text';
-  saveCookies();
-
-  // Update active state
-  document.querySelectorAll('.server-icon').forEach(icon => {
-    icon.classList.remove('active');
-    if (icon.getAttribute('data-server') === serverId) {
-      icon.classList.add('active');
+  // Check if banned
+  db.ref(`servers/${serverId}/bans/${currentUser.uid}`).once('value').then(banSnap => {
+    if (banSnap.exists()) {
+      showToast('You are banned from this server', 'error');
+      // Remove from user servers if somehow in list
+      userServers = userServers.filter(s => s !== serverId);
+      saveCookies();
+      loadUserServers();
+      return;
     }
-  });
 
-  // Load server data
-  db.ref(`servers/${serverId}`).once('value').then(snap => {
-    if (snap.exists()) {
-      const data = snap.val();
-      
-      if (elements.serverName) elements.serverName.textContent = data.name || 'Server';
-      
-      const addChannelServerName = document.getElementById('addChannelServerName');
-      if (addChannelServerName) addChannelServerName.textContent = data.name || 'Server';
-      
-      const addVoiceChannelServerName = document.getElementById('addVoiceChannelServerName');
-      if (addVoiceChannelServerName) addVoiceChannelServerName.textContent = data.name || 'Server';
+    currentServer = serverId;
+    currentChannel = null;
+    currentChannelType = 'text';
+    saveCookies();
 
-      // Ensure member exists
-      db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value').then(memberSnap => {
-        if (!memberSnap.exists()) {
-          db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
-            username: userProfile.username,
-            role: 'Member',
-            avatar: userProfile.avatar,
-            status: 'online',
-            joinedAt: Date.now()
-          });
-        } else {
-          const memberData = memberSnap.val();
-          userProfile.role = memberData.role || 'Member';
-          updateUserDisplay();
-        }
-      });
-
-      loadChannels();
-      
-      if (elements.memberList.style.display !== 'none') {
-        loadMemberList();
+    // Update active state
+    document.querySelectorAll('.server-icon').forEach(icon => {
+      icon.classList.remove('active');
+      if (icon.getAttribute('data-server') === serverId) {
+        icon.classList.add('active');
       }
-    }
+    });
+
+    // Load server data
+    db.ref(`servers/${serverId}`).once('value').then(snap => {
+      if (snap.exists()) {
+        const data = snap.val();
+        
+        if (elements.serverName) elements.serverName.textContent = data.name || 'Server';
+        
+        const addChannelServerName = document.getElementById('addChannelServerName');
+        if (addChannelServerName) addChannelServerName.textContent = data.name || 'Server';
+        
+        const addVoiceChannelServerName = document.getElementById('addVoiceChannelServerName');
+        if (addVoiceChannelServerName) addVoiceChannelServerName.textContent = data.name || 'Server';
+
+        // Ensure member exists
+        db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value').then(memberSnap => {
+          if (!memberSnap.exists()) {
+            db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+              username: userProfile.username,
+              role: 'Member',
+              avatar: userProfile.avatar,
+              status: 'online',
+              joinedAt: Date.now()
+            });
+          } else {
+            const memberData = memberSnap.val();
+            userProfile.role = memberData.role || 'Member';
+            updateUserDisplay();
+          }
+        });
+
+        loadChannels();
+        
+        if (elements.memberList.style.display !== 'none') {
+          loadMemberList();
+        }
+      }
+    });
   });
 }
 
@@ -1938,10 +2086,11 @@ function createServer() {
       createdAt: Date.now(),
       invite: generateInviteCode(),
       roles: {
-        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles'], color: '#f23f43', hoist: true },
-        Moderator: { permissions: ['manage_messages'], color: '#5865f2', hoist: true },
+        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles', 'kick', 'ban'], color: '#f23f43', hoist: true },
+        Moderator: { permissions: ['manage_messages', 'kick'], color: '#5865f2', hoist: true },
         Member: { permissions: [], color: '#949ba4', hoist: false }
-      }
+      },
+      bans: {}
     };
 
     db.ref(`servers/${serverId}`).set(serverData).then(() => {
@@ -2018,38 +2167,46 @@ function joinServer() {
       return;
     }
 
-    if (userServers.includes(foundServer)) {
-      showToast('You are already in this server', 'error');
-      return;
-    }
+    // Check if banned
+    db.ref(`servers/${foundServer}/bans/${currentUser.uid}`).once('value').then(banSnap => {
+      if (banSnap.exists()) {
+        showToast('You are banned from this server', 'error');
+        return;
+      }
 
-    db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-      username: userProfile.username,
-      role: 'Member',
-      avatar: userProfile.avatar,
-      status: 'online',
-      joinedAt: Date.now()
+      if (userServers.includes(foundServer)) {
+        showToast('You are already in this server', 'error');
+        return;
+      }
+
+      db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
+        username: userProfile.username,
+        role: 'Member',
+        avatar: userProfile.avatar,
+        status: 'online',
+        joinedAt: Date.now()
+      });
+
+      // Send join message
+      db.ref(`servers/${foundServer}/channels_data/general/messages`).push({
+        author: 'System',
+        text: `${userProfile.username} joined the server.`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        role: 'System',
+        roleColor: '#23a559',
+        uid: 'system',
+        timestamp: Date.now()
+      });
+
+      userServers.push(foundServer);
+      saveCookies();
+      loadUserServers();
+      selectServer(foundServer);
+      hideModal('invite');
+      
+      if (joinCodeInput) joinCodeInput.value = '';
+      showToast('Successfully joined server!', 'success');
     });
-
-    // Send join message
-    db.ref(`servers/${foundServer}/channels_data/general/messages`).push({
-      author: 'System',
-      text: `${userProfile.username} joined the server.`,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      role: 'System',
-      roleColor: '#23a559',
-      uid: 'system',
-      timestamp: Date.now()
-    });
-
-    userServers.push(foundServer);
-    saveCookies();
-    loadUserServers();
-    selectServer(foundServer);
-    hideModal('invite');
-    
-    if (joinCodeInput) joinCodeInput.value = '';
-    showToast('Successfully joined server!', 'success');
   });
 }
 
@@ -2064,21 +2221,26 @@ function joinOfficialServer() {
     });
 
     if (foundServer && !userServers.includes(foundServer)) {
-      db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: 'Member',
-        avatar: userProfile.avatar,
-        status: 'online',
-        joinedAt: Date.now()
+      // Check if banned
+      db.ref(`servers/${foundServer}/bans/${currentUser.uid}`).once('value').then(banSnap => {
+        if (banSnap.exists()) return;
+        
+        db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
+          username: userProfile.username,
+          role: 'Member',
+          avatar: userProfile.avatar,
+          status: 'online',
+          joinedAt: Date.now()
+        });
+
+        userServers.push(foundServer);
+        saveCookies();
+
+        if (!currentServer) {
+          currentServer = foundServer;
+          initializeApp();
+        }
       });
-
-      userServers.push(foundServer);
-      saveCookies();
-
-      if (!currentServer) {
-        currentServer = foundServer;
-        initializeApp();
-      }
     }
   });
 }
@@ -2108,6 +2270,243 @@ function leaveServer() {
   const newServer = userServers[0];
   selectServer(newServer);
   hideModal('serverMenu');
+}
+
+// KICK, BAN, UNBAN FUNCTIONS
+function kickMember(uid, username) {
+  if (!currentServer) return;
+  if (!hasPermission('kick')) {
+    showToast('You do not have permission to kick members', 'error');
+    return;
+  }
+  
+  // Can't kick yourself
+  if (uid === currentUser.uid) {
+    showToast('You cannot kick yourself', 'error');
+    return;
+  }
+  
+  // Can't kick higher or equal role
+  db.ref(`servers/${currentServer}/members/${uid}`).once('value').then(targetSnap => {
+    const targetData = targetSnap.val();
+    if (!targetData) return;
+    
+    const targetRole = targetData.role || 'Member';
+    if (!canModerateUser(targetRole)) {
+      showToast('You cannot kick this user', 'error');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to kick ${username}?`)) return;
+    
+    // Remove from members
+    db.ref(`servers/${currentServer}/members/${uid}`).remove();
+    
+    // Remove from voice channel if connected
+    db.ref(`servers/${currentServer}/voiceChannels_data`).once('value').then(voiceSnap => {
+      const voiceChannels = voiceSnap.val() || {};
+      Object.keys(voiceChannels).forEach(channelName => {
+        db.ref(`servers/${currentServer}/voiceChannels_data/${channelName}/users/${uid}`).remove();
+      });
+    });
+    
+    // Send system message
+    db.ref(`servers/${currentServer}/channels_data/general/messages`).push({
+      author: 'System',
+      text: `${username} was kicked from the server.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      role: 'System',
+      roleColor: '#f23f43',
+      uid: 'system',
+      timestamp: Date.now()
+    });
+    
+    showToast(`${username} was kicked`, 'success');
+    loadMemberList();
+  });
+}
+
+function banMember(uid, username) {
+  if (!currentServer) return;
+  if (!hasPermission('ban')) {
+    showToast('You do not have permission to ban members', 'error');
+    return;
+  }
+  
+  // Can't ban yourself
+  if (uid === currentUser.uid) {
+    showToast('You cannot ban yourself', 'error');
+    return;
+  }
+  
+  // Can't ban higher or equal role
+  db.ref(`servers/${currentServer}/members/${uid}`).once('value').then(targetSnap => {
+    const targetData = targetSnap.val();
+    if (!targetData) return;
+    
+    const targetRole = targetData.role || 'Member';
+    if (!canModerateUser(targetRole)) {
+      showToast('You cannot ban this user', 'error');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to ban ${username}? They will not be able to rejoin.`)) return;
+    
+    // Add to bans
+    db.ref(`servers/${currentServer}/bans/${uid}`).set({
+      username: username,
+      bannedBy: userProfile.username,
+      bannedAt: Date.now(),
+      reason: ''
+    });
+    
+    // Remove from members
+    db.ref(`servers/${currentServer}/members/${uid}`).remove();
+    
+    // Remove from voice channel if connected
+    db.ref(`servers/${currentServer}/voiceChannels_data`).once('value').then(voiceSnap => {
+      const voiceChannels = voiceSnap.val() || {};
+      Object.keys(voiceChannels).forEach(channelName => {
+        db.ref(`servers/${currentServer}/voiceChannels_data/${channelName}/users/${uid}`).remove();
+      });
+    });
+    
+    // Send system message
+    db.ref(`servers/${currentServer}/channels_data/general/messages`).push({
+      author: 'System',
+      text: `${username} was banned from the server.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      role: 'System',
+      roleColor: '#ed4245',
+      uid: 'system',
+      timestamp: Date.now()
+    });
+    
+    showToast(`${username} was banned`, 'success');
+    loadMemberList();
+  });
+}
+
+function unbanMember(uid, username) {
+  if (!currentServer) return;
+  if (!hasPermission('ban')) {
+    showToast('You do not have permission to unban members', 'error');
+    return;
+  }
+  
+  if (!confirm(`Unban ${username}? They will be able to rejoin with an invite.`)) return;
+  
+  db.ref(`servers/${currentServer}/bans/${uid}`).remove().then(() => {
+    showToast(`${username} was unbanned`, 'success');
+    loadBanList();
+  });
+}
+
+function loadBanList() {
+  const banListContainer = document.getElementById('banListContainer');
+  if (!banListContainer) return;
+  
+  banListContainer.innerHTML = '<div class="loading-text">Loading bans...</div>';
+  
+  db.ref(`servers/${currentServer}/bans`).once('value').then(snap => {
+    const bans = snap.val() || {};
+    banListContainer.innerHTML = '';
+    
+    if (Object.keys(bans).length === 0) {
+      banListContainer.innerHTML = '<div class="empty-text">No banned users</div>';
+      return;
+    }
+    
+    Object.entries(bans).forEach(([uid, banData]) => {
+      const div = document.createElement('div');
+      div.className = 'ban-item';
+      div.innerHTML = `
+        <div class="ban-info">
+          <div class="ban-name">${banData.username || 'Unknown'}</div>
+          <div class="ban-reason">Banned by ${banData.bannedBy || 'Unknown'} • ${new Date(banData.bannedAt).toLocaleDateString()}</div>
+        </div>
+        <button class="unban-btn" onclick="unbanMember('${uid}', '${banData.username}')">Unban</button>
+      `;
+      banListContainer.appendChild(div);
+    });
+  });
+}
+
+function canModerateUser(targetRole) {
+  const roleHierarchy = { 'Member': 1, 'Moderator': 2, 'Admin': 3 };
+  const myLevel = roleHierarchy[userProfile.role] || 0;
+  const targetLevel = roleHierarchy[targetRole] || 0;
+  return myLevel > targetLevel;
+}
+
+function showUserContextMenu(event, uid, username, role) {
+  event.stopPropagation();
+  event.preventDefault();
+  
+  const menu = document.getElementById('userContextMenu');
+  if (!menu) return;
+  
+  selectedUserId = uid;
+  selectedUserName = username;
+  
+  // Check permissions and set menu items
+  const canKick = hasPermission('kick') && canModerateUser(role) && uid !== currentUser.uid;
+  const canBan = hasPermission('ban') && canModerateUser(role) && uid !== currentUser.uid;
+  const canManageRole = hasPermission('manage_roles') && canModerateUser(role) && uid !== currentUser.uid;
+  
+  const kickItem = document.getElementById('contextKick');
+  const banItem = document.getElementById('contextBan');
+  const roleItem = document.getElementById('contextRole');
+  
+  if (kickItem) {
+    kickItem.style.display = canKick ? 'flex' : 'none';
+    kickItem.onclick = () => { kickMember(uid, username); hideUserContextMenu(); };
+  }
+  if (banItem) {
+    banItem.style.display = canBan ? 'flex' : 'none';
+    banItem.onclick = () => { banMember(uid, username); hideUserContextMenu(); };
+  }
+  if (roleItem) {
+    roleItem.style.display = canManageRole ? 'flex' : 'none';
+    roleItem.onclick = () => { showRoleModal(uid, username, role); hideUserContextMenu(); };
+  }
+  
+  // Position menu
+  menu.style.left = `${event.pageX}px`;
+  menu.style.top = `${event.pageY}px`;
+  menu.classList.add('active');
+}
+
+function hideUserContextMenu() {
+  const menu = document.getElementById('userContextMenu');
+  if (menu) menu.classList.remove('active');
+}
+
+function showRoleModal(uid, username, currentRole) {
+  selectedUserId = uid;
+  selectedUserName = username;
+  
+  const roleModal = document.getElementById('roleModal');
+  const roleModalTitle = document.getElementById('roleModalTitle');
+  const roleSelect = document.getElementById('roleSelect');
+  
+  if (roleModalTitle) roleModalTitle.textContent = `Change Role for ${username}`;
+  if (roleSelect) roleSelect.value = currentRole;
+  
+  showModal('role');
+}
+
+function changeUserRole() {
+  if (!selectedUserId || !currentServer) return;
+  
+  const roleSelect = document.getElementById('roleSelect');
+  const newRole = roleSelect ? roleSelect.value : 'Member';
+  
+  db.ref(`servers/${currentServer}/members/${selectedUserId}/role`).set(newRole).then(() => {
+    showToast(`${selectedUserName} is now ${newRole}`, 'success');
+    hideModal('role');
+    loadMemberList();
+  });
 }
 
 // Channel Management
@@ -2738,6 +3137,10 @@ function loadMemberList() {
             ${member.status && member.status !== 'online' ? `<div class="member-status-text">${member.status}</div>` : ''}
           </div>
         `;
+        
+        // Add right-click context menu
+        memberDiv.oncontextmenu = (e) => showUserContextMenu(e, member.uid, member.username, member.role);
+        
         categoryDiv.appendChild(memberDiv);
       });
 
@@ -2771,18 +3174,31 @@ function manageRoles() {
     }
 
     const [targetUid, targetData] = target;
-    const newRole = prompt(`Current role: ${targetData.role}\n\nNew role (Admin/Moderator/Member):`);
-    if (newRole && ['Admin', 'Moderator', 'Member'].includes(newRole)) {
-      db.ref(`servers/${currentServer}/members/${targetUid}/role`).set(newRole);
-      showToast(`${username} is now ${newRole}`, 'success');
-    }
+    showRoleModal(targetUid, targetData.username, targetData.role);
   });
 }
 
 // Permissions
 function hasPermission(permission) {
   if (userProfile.role === 'Admin') return true;
-  // Simplified - in real app, check role permissions from server data
+  
+  // Check role permissions
+  return new Promise((resolve) => {
+    db.ref(`servers/${currentServer}/roles/${userProfile.role}`).once('value').then(snap => {
+      const roleData = snap.val() || {};
+      const permissions = roleData.permissions || [];
+      resolve(permissions.includes(permission));
+    });
+  });
+}
+
+// Synchronous version for UI checks
+function hasPermission(permission) {
+  if (userProfile.role === 'Admin') return true;
+  if (userProfile.role === 'Moderator') {
+    const modPerms = ['manage_messages', 'kick'];
+    return modPerms.includes(permission);
+  }
   return false;
 }
 
@@ -2904,6 +3320,8 @@ function showModal(modalName) {
         channelSelect.appendChild(opt);
       });
     });
+  } else if (modalName === 'bans') {
+    loadBanList();
   }
 }
 

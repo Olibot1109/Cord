@@ -1438,7 +1438,12 @@ body {
 </div>
 
 <!-- User Context Menu -->
+<!-- User Context Menu -->
 <div id="userContextMenu" style="display:none;position:fixed;background:#111214;border:1px solid #1e1f22;border-radius:4px;padding:8px;min-width:180px;box-shadow:0 8px 16px rgba(0,0,0,0.4);z-index:9999;">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px 8px 4px;border-bottom:1px solid #1e1f22;margin-bottom:4px;">
+    <span style="font-size:12px;font-weight:700;color:#949ba4;text-transform:uppercase;">User Actions</span>
+    <button onclick="hideUserContextMenu()" style="background:transparent;border:none;color:#949ba4;cursor:pointer;font-size:16px;padding:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;">✕</button>
+  </div>
   <div id="contextRole" style="padding:10px 12px;border-radius:4px;cursor:pointer;color:#dbdee1;display:flex;align-items:center;gap:12px;font-size:14px;">
     <span>👑</span> Change Role
   </div>
@@ -3258,7 +3263,8 @@ function toggleMemberList() {
   
   if (!isVisible) {
     loadMemberList();
-  }
+  } else {
+    hideUserContextMenu()
 }
 
 function manageRoles() {

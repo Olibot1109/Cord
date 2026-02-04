@@ -1,0 +1,353 @@
+/* Server List - Leftmost */
+.server-list {
+  width: 72px;
+  background: #1e1f22;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 8px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.server-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #313338;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  font-weight: 600;
+  font-size: 16px;
+  position: relative;
+  color: #dbdee1;
+}
+
+.server-icon:hover, .server-icon.active {
+  border-radius: 16px;
+  background: #5865f2;
+  color: white;
+}
+
+.server-icon.active::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  width: 4px;
+  height: 40px;
+  background: #dbdee1;
+  border-radius: 0 4px 4px 0;
+}
+
+.server-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.server-icon.home {
+  background: #313338;
+  color: #dbdee1;
+}
+
+.server-icon.home:hover, .server-icon.home.active {
+  background: #5865f2;
+  color: white;
+}
+
+.server-divider {
+  width: 32px;
+  height: 2px;
+  background: #35363c;
+  margin: 4px 0;
+}
+
+.add-server {
+  background: #313338 !important;
+  color: #23a559 !important;
+  font-size: 24px !important;
+}
+
+.add-server:hover {
+  background: #23a559 !important;
+  color: white !important;
+  border-radius: 16px;
+}
+
+/* Channel Sidebar */
+.channel-sidebar {
+  width: 240px;
+  background: #2b2d31;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.server-header {
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #1e1f22;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+  color: #f2f3f5;
+  transition: background 0.1s;
+}
+
+.server-header:hover { background: #35363c; }
+.dropdown-icon { font-size: 12px; color: #dbdee1; }
+
+.channels-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+}
+
+.channel-category {
+  margin-bottom: 16px;
+  padding: 0 8px;
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #949ba4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.category-header:hover { color: #dbdee1; }
+.category-header span:first-child { font-size: 10px; margin-right: 4px; }
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin: 1px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 15px;
+  color: #949ba4;
+  transition: all 0.1s;
+}
+
+.channel-item:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+
+.channel-item.active {
+  background: #404249;
+  color: #fff;
+}
+
+.channel-item.locked {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.channel-item.locked:hover {
+  background: transparent;
+  color: #949ba4;
+}
+
+.channel-icon {
+  font-size: 20px;
+  width: 20px;
+  text-align: center;
+}
+
+.channel-item.active .channel-icon { color: #fff; }
+.channel-item.locked .channel-icon { color: #f23f43; }
+
+.voice-users {
+  margin-left: 28px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voice-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 12px 8px;
+}
+
+.voice-video-tile {
+  position: relative;
+  background: #1e1f22;
+  border: 1px solid #2b2d31;
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.voice-video-label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.voice-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #949ba4;
+}
+
+.voice-user-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.voice-user img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* User Area */
+.user-area {
+  height: 52px;
+  background: #232428;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 8px;
+  border-top: 1px solid #1e1f22;
+  margin-top: auto;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.user-status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #23a559;
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  border: 2px solid #232428;
+}
+
+.user-info { flex: 1; min-width: 0; }
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f2f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-status {
+    font-size: 12px;
+    color: #949ba4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-voice-status {
+    font-size: 11px;
+    color: #23a559;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-voice-status.muted {
+    color: #f23f43;
+}
+
+.user-voice-status.deafened {
+    color: #f04747;
+}
+
+.user-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.user-btn {
+  background: transparent;
+  border: none;
+  color: #b5bac1;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+
+.user-btn:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+

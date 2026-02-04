@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #313338;
+  color: #dbdee1;
+  font-family: 'Inter', 'Whitney', 'Helvetica Neue', sans-serif;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(1200px 600px at 20% 0%, #2b2d31, #1e1f22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  transition: opacity 0.3s ease;
+}
+
+.loading-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-card {
+  display: none;
+}
+
+.loading-spinner {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 6px solid #2b2d31;
+  border-top-color: #5865f2;
+  border-right-color: #23a559;
+  border-bottom-color: #f0b232;
+  animation: spin 0.9s linear infinite;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-log {
+  margin-top: 14px;
+  background: #0c0d0f;
+  border: 1px solid #1e1f22;
+  border-radius: 10px;
+  padding: 10px;
+  height: 120px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 11px;
+  color: #9da2ab;
+}

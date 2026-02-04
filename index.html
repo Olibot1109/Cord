@@ -2480,10 +2480,14 @@ function showUserContextMenu(event, uid, username, role) {
   menu.classList.add('active');
 }
 
+// REPLACE THIS FUNCTION - hideUserContextMenu
 function hideUserContextMenu() {
   const menu = document.getElementById('userContextMenu');
-  if (menu) menu.classList.remove('active');
+  if (menu) {
+    menu.style.display = 'none';
+  }
 }
+
 
 function showRoleModal(uid, username, currentRole) {
   selectedUserId = uid;
@@ -3096,6 +3100,7 @@ function updateMemberData() {
   });
 }
 
+// REPLACE THIS FUNCTION - loadMemberList
 function loadMemberList() {
   if (!currentServer) return;
 
@@ -3130,6 +3135,10 @@ function loadMemberList() {
 
         const memberDiv = document.createElement('div');
         memberDiv.className = 'member-item';
+        memberDiv.setAttribute('data-uid', member.uid);
+        memberDiv.setAttribute('data-username', member.username || 'Unknown');
+        memberDiv.setAttribute('data-role', member.role || 'Member');
+        
         memberDiv.innerHTML = `
           <div class="member-avatar" style="background:${getRoleColor(member.role)}">
             ${member.avatar ? `<img src="${member.avatar}">` : (member.username ? member.username.charAt(0).toUpperCase() : '?')}
@@ -3141,8 +3150,14 @@ function loadMemberList() {
           </div>
         `;
         
-        // Add right-click context menu
-        memberDiv.oncontextmenu = (e) => showUserContextMenu(e, member.uid, member.username, member.role);
+        // Add click handler for context menu
+        memberDiv.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const uid = this.getAttribute('data-uid');
+          const username = this.getAttribute('data-username');
+          const role = this.getAttribute('data-role');
+          showUserContextMenu(e, uid, username, role);
+        });
         
         categoryDiv.appendChild(memberDiv);
       });
@@ -3152,10 +3167,98 @@ function loadMemberList() {
   });
 }
 
+// REPLACE THIS FUNCTION - showUserContextMenu
+function showUserContextMenu(event, uid, username, role) {
+  event.stopPropagation();
+  event.preventDefault();
+  
+  // Don't show menu for yourself
+  if (uid === currentUser.uid) {
+    showToast('You cannot moderate yourself', 'error');
+    return;
+  }
+  
+  const menu = document.getElementById('userContextMenu');
+  if (!menu) {
+    console.error('Context menu not found');
+    return;
+  }
+  
+  selectedUserId = uid;
+  selectedUserName = username;
+  
+  // Get permissions
+  const canKick = hasPermission('kick') && canModerateUser(role);
+  const canBan = hasPermission('ban') && canModerateUser(role);
+  const canManageRole = hasPermission('manage_roles') && canModerateUser(role);
+  
+  // Update menu items
+  const kickItem = document.getElementById('contextKick');
+  const banItem = document.getElementById('contextBan');
+  const roleItem = document.getElementById('contextRole');
+  
+  if (kickItem) {
+    kickItem.style.display = canKick ? 'flex' : 'none';
+    kickItem.onclick = function(e) {
+      e.stopPropagation();
+      kickMember(uid, username);
+      hideUserContextMenu();
+    };
+  }
+  
+  if (banItem) {
+    banItem.style.display = canBan ? 'flex' : 'none';
+    banItem.onclick = function(e) {
+      e.stopPropagation();
+      banMember(uid, username);
+      hideUserContextMenu();
+    };
+  }
+  
+  if (roleItem) {
+    roleItem.style.display = canManageRole ? 'flex' : 'none';
+    roleItem.onclick = function(e) {
+      e.stopPropagation();
+      showRoleModal(uid, username, role);
+      hideUserContextMenu();
+    };
+  }
+  
+  // Position menu at click location
+  const x = event.pageX || event.clientX;
+  const y = event.pageY || event.clientY;
+  
+  menu.style.position = 'fixed';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.display = 'block';
+  menu.style.zIndex = '9999';
+  
+  // Ensure menu stays on screen
+  setTimeout(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = (window.innerWidth - rect.width - 10) + 'px';
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = (window.innerHeight - rect.height - 10) + 'px';
+    }
+  }, 0);
+}
+
+
+
+// REPLACE THIS FUNCTION - toggleMemberList
 function toggleMemberList() {
-  const isVisible = elements.memberList.style.display !== 'none';
-  elements.memberList.style.display = isVisible ? 'none' : 'block';
-  if (!isVisible) loadMemberList();
+  const memberList = document.getElementById('memberList');
+  if (!memberList) return;
+  
+  const isVisible = memberList.style.display !== 'none';
+  memberList.style.display = isVisible ? 'none' : 'block';
+  
+  if (!isVisible) {
+    loadMemberList();
+  }
 }
 
 function manageRoles() {

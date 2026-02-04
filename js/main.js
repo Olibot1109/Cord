@@ -53,6 +53,7 @@ let selectedDiscoveryId = null;
 let isOnboarding = false;
 let forceJoinModal = false;
 let rolesListRef = null;
+let rolesCache = {};
 
 // DOM Elements
 const elements = {
@@ -93,6 +94,12 @@ const LIMITS = {
   serverDescription: 200,
   roleName: 50,
   bio: 160
+};
+
+const DEFAULT_ROLE_PERMISSIONS = {
+  Admin: ['manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels'],
+  Moderator: ['manage_messages', 'send_messages', 'view_channels'],
+  Member: ['send_messages', 'view_channels']
 };
 
 // Initialize
@@ -447,6 +454,11 @@ function goDiscovery() {
   isHomeView = false;
   isDiscoveryView = true;
   forceJoinModal = false;
+  if (rolesListRef) {
+    rolesListRef.off();
+    rolesListRef = null;
+  }
+  rolesCache = {};
   messageListeners.forEach(ref => ref.off());
   messageListeners = [];
   elements.typingIndicator.classList.remove('active');
@@ -510,6 +522,15 @@ function selectServer(serverId) {
   isHomeView = false;
   isDiscoveryView = false;
   saveCookies();
+
+  if (rolesListRef) {
+    rolesListRef.off();
+    rolesListRef = null;
+  }
+  rolesListRef = db.ref(`servers/${currentServer}/roles`);
+  rolesListRef.on('value', (snap) => {
+    rolesCache = snap.val() || {};
+  });
 
   setHomeView(false);
 
@@ -580,6 +601,11 @@ function goHome() {
   currentDmUser = null;
   isHomeView = true;
   isDiscoveryView = false;
+  if (rolesListRef) {
+    rolesListRef.off();
+    rolesListRef = null;
+  }
+  rolesCache = {};
   messageListeners.forEach(ref => ref.off());
   messageListeners = [];
   elements.typingIndicator.classList.remove('active');
@@ -977,9 +1003,9 @@ function createServer() {
       systemChannel: 'general',
       discoverable: false,
       roles: {
-        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles'], color: '#f23f43', hoist: true },
-        Moderator: { permissions: ['manage_messages'], color: '#5865f2', hoist: true },
-        Member: { permissions: [], color: '#949ba4', hoist: false }
+        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels'], color: '#f23f43', hoist: true },
+        Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels'], color: '#5865f2', hoist: true },
+        Member: { permissions: ['send_messages', 'view_channels'], color: '#949ba4', hoist: false }
       }
     };
 
@@ -991,10 +1017,10 @@ function createServer() {
       // Create default voice channel
       db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
 
-      // Add creator as admin
+      // Add creator as admin (owner still gets crown + full perms)
       db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
         username: userProfile.username,
-        role: 'Owner',
+        role: 'Admin',
         avatar: userProfile.avatar,
         status: 'online',
         joinedAt: Date.now()
@@ -1336,18 +1362,13 @@ function loadChannels() {
 
 function checkChannelAccess(channelName, type) {
   return new Promise((resolve) => {
-    if (userProfile.role === 'Admin') {
-      resolve(true);
-      return;
-    }
-
     db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).once('value').then(snap => {
       const perms = snap.val() || {};
       const requiredRoles = type === 'text' ? (perms.requiredRolesToView || []) : (perms.voiceRoles || []);
       if (requiredRoles.length === 0) {
-        resolve(true);
+        resolve(isServerOwner() || hasPermission('view_channels'));
       } else {
-        resolve(requiredRoles.includes(userProfile.role));
+        resolve(isServerOwner() || requiredRoles.includes(userProfile.role));
       }
     });
   });
@@ -1674,7 +1695,11 @@ function sendMessage() {
     const perms = permSnap.val() || {};
     const sendRoles = perms.requiredRolesToSend || [];
     
-    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && userProfile.role !== 'Admin') {
+    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && !isServerOwner()) {
+      showToast('You do not have permission to send messages here', 'error');
+      return;
+    }
+    if (sendRoles.length === 0 && !hasPermission('send_messages')) {
       showToast('You do not have permission to send messages here', 'error');
       return;
     }
@@ -1769,7 +1794,11 @@ function handleImageUpload(e) {
     const perms = permSnap.val() || {};
     const sendRoles = perms.requiredRolesToSend || [];
     
-    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && userProfile.role !== 'Admin') {
+    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && !isServerOwner()) {
+      showToast('You do not have permission to send images here', 'error');
+      return;
+    }
+    if (sendRoles.length === 0 && !hasPermission('send_messages')) {
       showToast('You do not have permission to send images here', 'error');
       return;
     }
@@ -1945,18 +1974,22 @@ function loadMemberList() {
       const rolesData = roleSnap.val() || {};
       const ownerId = currentServerOwnerId;
 
-      // Build role order: Owner, then hoisted custom roles, then Admin/Moderator/Member, then any remaining
+      // Build role order: hoisted custom roles, then Admin/Moderator/Member, then any remaining
       const roleNames = Object.keys(rolesData);
       const hoisted = roleNames.filter(r => rolesData[r]?.hoist);
       const defaults = ['Admin', 'Moderator', 'Member'].filter(r => roleNames.includes(r));
-      const hoistedNonDefault = hoisted.filter(r => r !== 'Owner' && !defaults.includes(r));
-      const rest = roleNames.filter(r => r !== 'Owner' && !hoisted.includes(r) && !defaults.includes(r));
-      const orderedRoles = ['Owner', ...hoistedNonDefault, ...defaults, ...rest];
+      const hoistedNonDefault = hoisted.filter(r => !defaults.includes(r));
+      const rest = roleNames.filter(r => !hoisted.includes(r) && !defaults.includes(r));
+      const orderedRoles = [...hoistedNonDefault, ...defaults, ...rest];
 
       // Group by role
       const roleGroups = {};
       Object.entries(members).forEach(([uid, data]) => {
-        const role = data.role || (currentServerOwnerId && uid === currentServerOwnerId ? 'Owner' : 'Member');
+        if (data.role === 'Owner') {
+          db.ref(`servers/${currentServer}/members/${uid}/role`).set('Admin');
+          data.role = 'Admin';
+        }
+        const role = data.role || (currentServerOwnerId && uid === currentServerOwnerId ? 'Admin' : 'Member');
         if (!roleGroups[role]) roleGroups[role] = [];
         roleGroups[role].push({ uid, ...data });
       });
@@ -2178,11 +2211,6 @@ function setMemberRole(member, roleName) {
 
   if (member.uid === currentUser.uid) {
     showToast('You cannot change your own role', 'error');
-    return;
-  }
-
-  if (member.role === 'Admin' && userProfile.role !== 'Admin') {
-    showToast('Only Admins can change an Admin role', 'error');
     return;
   }
 
@@ -2641,11 +2669,13 @@ function updateRoleReferences(oldRole, newRole) {
 
       const viewRoles = (perms.requiredRolesToView || []).map(role => role === oldRole ? newRole : role);
       const sendRoles = (perms.requiredRolesToSend || []).map(role => role === oldRole ? newRole : role);
+      const voiceRoles = (perms.voiceRoles || []).map(role => role === oldRole ? newRole : role);
 
       channelUpdates.push(
         db.ref(`servers/${currentServer}/channels_data/${channelName}/permissions`).update({
           requiredRolesToView: viewRoles,
-          requiredRolesToSend: sendRoles
+          requiredRolesToSend: sendRoles,
+          voiceRoles: voiceRoles
         })
       );
     });
@@ -2758,17 +2788,22 @@ function joinServer() {
 
 // Permissions
 function hasPermission(permission) {
-  if (currentUser && currentServerOwnerId && currentUser.uid === currentServerOwnerId) return true;
-  if (userProfile.role === 'Admin') return true;
-  
-  const permissions = {
-    'manage_roles': ['Admin'],
-    'manage_channels': ['Admin', 'Moderator'],
-    'send_messages': ['Admin', 'Moderator', 'Member'],
-    'view_channels': ['Admin', 'Moderator', 'Member']
-  };
-  
-  return permissions[permission] && permissions[permission].includes(userProfile.role);
+  if (isServerOwner()) return true;
+  const rolePerms = getRolePermissions(userProfile.role);
+  return rolePerms.includes(permission);
+}
+
+function isServerOwner() {
+  return !!(currentUser && currentServerOwnerId && currentUser.uid === currentServerOwnerId);
+}
+
+function getRolePermissions(roleName) {
+  if (!roleName) return [];
+  const roleData = rolesCache && rolesCache[roleName];
+  if (roleData && Array.isArray(roleData.permissions)) {
+    return roleData.permissions;
+  }
+  return DEFAULT_ROLE_PERMISSIONS[roleName] || [];
 }
 
 function getRoleColor(role) {

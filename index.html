@@ -1150,7 +1150,10 @@ body {
 #userContextMenu .dropdown-item {
   padding: 10px 12px;
 }
-
+#userContextMenu div:hover {
+  background: #5865f2;
+  color: white !important;
+}
 /* Update server menu to include bans */
 .dropdown-item.bans {
   color: #ed4245;
@@ -1435,14 +1438,14 @@ body {
 </div>
 
 <!-- User Context Menu -->
-<div class="dropdown-menu" id="userContextMenu" style="position:fixed;display:none;z-index:1000;">
-  <div class="dropdown-item" id="contextRole" onclick="">
+<div id="userContextMenu" style="display:none;position:fixed;background:#111214;border:1px solid #1e1f22;border-radius:4px;padding:8px;min-width:180px;box-shadow:0 8px 16px rgba(0,0,0,0.4);z-index:9999;">
+  <div id="contextRole" style="padding:10px 12px;border-radius:4px;cursor:pointer;color:#dbdee1;display:flex;align-items:center;gap:12px;font-size:14px;">
     <span>👑</span> Change Role
   </div>
-  <div class="dropdown-item" id="contextKick" style="color:#f0b232;" onclick="">
+  <div id="contextKick" style="padding:10px 12px;border-radius:4px;cursor:pointer;color:#f0b232;display:flex;align-items:center;gap:12px;font-size:14px;">
     <span>👢</span> Kick
   </div>
-  <div class="dropdown-item" id="contextBan" style="color:#f23f43;" onclick="">
+  <div id="contextBan" style="padding:10px 12px;border-radius:4px;cursor:pointer;color:#f23f43;display:flex;align-items:center;gap:12px;font-size:14px;">
     <span>🔨</span> Ban
   </div>
 </div>

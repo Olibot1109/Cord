@@ -340,7 +340,6 @@ function joinVoiceChannel(channelName) {
 
       db.ref(`servers/${currentServer}/voiceChannels/${channelName}/users/${currentUser.uid}`).set({
         username: userProfile.username,
-        avatar: userProfile.avatar,
         muted: isMuted,
         deafened: isDeafened,
         joinedAt: Date.now()
@@ -556,4 +555,311 @@ function updateCameraButton() {
   if (!btn) return;
   btn.classList.toggle('active', isCameraOn);
   btn.innerHTML = isCameraOn ? '<i class="fa-solid fa-video"></i>' : '<i class="fa-solid fa-video-slash"></i>';
+}
+
+// DM Video Calling
+let dmCallPc = null;
+let dmCallStream = null;
+let dmCallPeerUid = null;
+let dmCallSessionStart = 0;
+let dmIncomingOffer = null;
+let dmCallOfferRef = null;
+let dmCallAnswerRef = null;
+let dmCallIceRef = null;
+let dmCallEndedRef = null;
+
+function getDmCallBaseRef() {
+  if (!currentChannel || currentChannelType !== 'dm') return null;
+  return db.ref(`dms/${currentChannel}/call`);
+}
+
+function showDmCallOverlay(show) {
+  const overlay = document.getElementById('dmCallOverlay');
+  if (!overlay) return;
+  overlay.style.display = show ? 'flex' : 'none';
+}
+
+function setDmCallTitle(text) {
+  const title = document.getElementById('dmCallTitle');
+  if (title) title.textContent = text || 'Video Call';
+}
+
+function showDmIncoming(show, name) {
+  const incoming = document.getElementById('dmCallIncoming');
+  const title = document.getElementById('dmCallIncomingName');
+  if (!incoming || !title) return;
+  title.textContent = name ? `Incoming video call from ${name}` : 'Incoming video call';
+  incoming.style.display = show ? 'block' : 'none';
+}
+
+function resetDmCallState() {
+  dmIncomingOffer = null;
+  dmCallPeerUid = null;
+  dmCallSessionStart = 0;
+  if (dmCallPc) {
+    dmCallPc.ontrack = null;
+    dmCallPc.onicecandidate = null;
+    dmCallPc.close();
+    dmCallPc = null;
+  }
+  if (dmCallStream) {
+    dmCallStream.getTracks().forEach(track => track.stop());
+    dmCallStream = null;
+  }
+  const localVideo = document.getElementById('dmLocalVideo');
+  const remoteVideo = document.getElementById('dmRemoteVideo');
+  if (localVideo) localVideo.srcObject = null;
+  if (remoteVideo) remoteVideo.srcObject = null;
+  showDmCallOverlay(false);
+  showDmIncoming(false);
+}
+
+function cleanupDmCallRefs() {
+  if (dmCallOfferRef) dmCallOfferRef.off();
+  if (dmCallAnswerRef) dmCallAnswerRef.off();
+  if (dmCallIceRef) dmCallIceRef.off();
+  if (dmCallEndedRef) dmCallEndedRef.off();
+  dmCallOfferRef = null;
+  dmCallAnswerRef = null;
+  dmCallIceRef = null;
+  dmCallEndedRef = null;
+}
+
+function setupDmIceCandidateListener(otherUid) {
+  const baseRef = getDmCallBaseRef();
+  if (!baseRef) return;
+  baseRef.child('ended').remove();
+  dmCallIceRef = baseRef.child('ice').child(otherUid).child(currentUser.uid);
+  dmCallIceRef.on('child_added', (snapshot) => {
+    const data = snapshot.val();
+    if (!data || !data.candidate || !dmCallPc) return;
+    if (data.timestamp && dmCallSessionStart && data.timestamp < dmCallSessionStart) return;
+    if (dmCallPc.signalingState === 'closed') return;
+
+    const candidate = new RTCIceCandidate({
+      candidate: data.candidate,
+      sdpMid: data.sdpMid,
+      sdpMLineIndex: data.sdpMLineIndex
+    });
+    if (dmCallPc.remoteDescription && dmCallPc.remoteDescription.type) {
+      dmCallPc.addIceCandidate(candidate).catch(() => {});
+    } else {
+      if (!peerCandidates[otherUid]) peerCandidates[otherUid] = [];
+      peerCandidates[otherUid].push(candidate);
+    }
+  });
+}
+
+function processDmQueuedCandidates(otherUid) {
+  if (!peerCandidates[otherUid] || peerCandidates[otherUid].length === 0 || !dmCallPc) return;
+  const candidates = peerCandidates[otherUid];
+  peerCandidates[otherUid] = [];
+  candidates.forEach(candidate => {
+    dmCallPc.addIceCandidate(candidate).catch(() => {});
+  });
+}
+
+function listenForDmCallEnd(otherUid) {
+  const baseRef = getDmCallBaseRef();
+  if (!baseRef) return;
+  dmCallEndedRef = baseRef.child('ended');
+  dmCallEndedRef.on('value', (snap) => {
+    const data = snap.val();
+    if (!data || !data.timestamp) return;
+    if (dmCallSessionStart && data.timestamp < dmCallSessionStart) return;
+    if (data.by && data.by === currentUser.uid) return;
+    endDmCall(false);
+  });
+}
+
+function startDmVideoCall() {
+  if (!currentUser || currentChannelType !== 'dm' || !currentDmUser?.uid) {
+    showToast('Open a DM to start a call', 'error');
+    return;
+  }
+  if (dmCallPc) {
+    showToast('Call already active', 'info');
+    return;
+  }
+  dmCallPeerUid = currentDmUser.uid;
+  dmCallSessionStart = Date.now();
+  setDmCallTitle(`Video Call with ${currentDmUser.username || 'User'}`);
+
+  const baseRef = getDmCallBaseRef();
+  if (!baseRef) return;
+
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(stream => {
+      dmCallStream = stream;
+      const localVideo = document.getElementById('dmLocalVideo');
+      if (localVideo) localVideo.srcObject = stream;
+
+      dmCallPc = new RTCPeerConnection(STUN_SERVERS);
+      peerCandidates[dmCallPeerUid] = [];
+
+      stream.getTracks().forEach(track => dmCallPc.addTrack(track, stream));
+
+      dmCallPc.ontrack = (e) => {
+        const remoteVideo = document.getElementById('dmRemoteVideo');
+        if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+      };
+
+      dmCallPc.onicecandidate = (e) => {
+        if (e.candidate) {
+          baseRef.child('ice').child(currentUser.uid).child(dmCallPeerUid).push({
+            candidate: e.candidate.candidate,
+            sdpMid: e.candidate.sdpMid,
+            sdpMLineIndex: e.candidate.sdpMLineIndex,
+            timestamp: Date.now()
+          });
+        }
+      };
+
+      showDmCallOverlay(true);
+      listenForDmCallEnd(dmCallPeerUid);
+
+      return dmCallPc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+    })
+    .then(offer => dmCallPc.setLocalDescription(offer))
+    .then(() => {
+      const offerPayload = {
+        type: dmCallPc.localDescription.type,
+        sdp: dmCallPc.localDescription.sdp,
+        from: currentUser.uid,
+        to: dmCallPeerUid,
+        timestamp: Date.now()
+      };
+      return getDmCallBaseRef().child('offer').child(currentUser.uid).set(offerPayload);
+    })
+    .then(() => {
+      const answerRef = getDmCallBaseRef().child('answer').child(currentUser.uid);
+      dmCallAnswerRef = answerRef;
+      answerRef.on('value', (snapshot) => {
+        const answer = snapshot.val();
+        if (!answer || answer.from !== dmCallPeerUid) return;
+        if (answer.timestamp && dmCallSessionStart && answer.timestamp < dmCallSessionStart) return;
+        if (!dmCallPc || dmCallPc.signalingState !== 'have-local-offer') return;
+        dmCallPc.setRemoteDescription(new RTCSessionDescription({
+          type: answer.type,
+          sdp: answer.sdp
+        })).then(() => {
+          processDmQueuedCandidates(dmCallPeerUid);
+        }).catch(() => {});
+      });
+      setupDmIceCandidateListener(dmCallPeerUid);
+    })
+    .catch(err => {
+      console.error('[DM Call] Failed to start call:', err);
+      showToast('Failed to start call', 'error');
+      endDmCall(false);
+    });
+}
+
+function acceptDmCall() {
+  if (!dmIncomingOffer || !currentUser) return;
+  if (dmCallPc) return;
+
+  dmCallPeerUid = dmIncomingOffer.from;
+  dmCallSessionStart = Date.now();
+  setDmCallTitle(`Video Call with ${currentDmUser?.username || 'User'}`);
+  showDmIncoming(false);
+  const baseRef = getDmCallBaseRef();
+  if (baseRef) baseRef.child('ended').remove();
+
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(stream => {
+      dmCallStream = stream;
+      const localVideo = document.getElementById('dmLocalVideo');
+      if (localVideo) localVideo.srcObject = stream;
+
+      dmCallPc = new RTCPeerConnection(STUN_SERVERS);
+      peerCandidates[dmCallPeerUid] = [];
+
+      stream.getTracks().forEach(track => dmCallPc.addTrack(track, stream));
+      dmCallPc.ontrack = (e) => {
+        const remoteVideo = document.getElementById('dmRemoteVideo');
+        if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+      };
+      dmCallPc.onicecandidate = (e) => {
+        if (e.candidate) {
+          getDmCallBaseRef().child('ice').child(currentUser.uid).child(dmCallPeerUid).push({
+            candidate: e.candidate.candidate,
+            sdpMid: e.candidate.sdpMid,
+            sdpMLineIndex: e.candidate.sdpMLineIndex,
+            timestamp: Date.now()
+          });
+        }
+      };
+
+      showDmCallOverlay(true);
+      listenForDmCallEnd(dmCallPeerUid);
+
+      return dmCallPc.setRemoteDescription(new RTCSessionDescription({
+        type: dmIncomingOffer.type,
+        sdp: dmIncomingOffer.sdp
+      }));
+    })
+    .then(() => dmCallPc.createAnswer())
+    .then(answer => dmCallPc.setLocalDescription(answer))
+    .then(() => {
+      return getDmCallBaseRef().child('answer').child(dmCallPeerUid).set({
+        type: dmCallPc.localDescription.type,
+        sdp: dmCallPc.localDescription.sdp,
+        from: currentUser.uid,
+        to: dmCallPeerUid,
+        timestamp: Date.now()
+      });
+    })
+    .then(() => {
+      setupDmIceCandidateListener(dmCallPeerUid);
+      processDmQueuedCandidates(dmCallPeerUid);
+    })
+    .catch(err => {
+      console.error('[DM Call] Failed to accept call:', err);
+      showToast('Failed to accept call', 'error');
+      endDmCall(false);
+    });
+}
+
+function declineDmCall() {
+  if (!dmIncomingOffer) return;
+  const baseRef = getDmCallBaseRef();
+  if (baseRef && dmIncomingOffer.from) {
+    baseRef.child('offer').child(dmIncomingOffer.from).remove();
+    baseRef.child('ended').set({
+      by: currentUser ? currentUser.uid : 'unknown',
+      timestamp: Date.now()
+    });
+  }
+  dmIncomingOffer = null;
+  showDmIncoming(false);
+}
+
+function endDmCall(signalRemote = true) {
+  const baseRef = getDmCallBaseRef();
+  if (signalRemote && baseRef && dmCallPeerUid && currentUser) {
+    baseRef.child('ended').set({
+      by: currentUser.uid,
+      timestamp: Date.now()
+    });
+  }
+  resetDmCallState();
+  cleanupDmCallRefs();
+}
+
+function startDmCallListeners() {
+  if (!currentUser || currentChannelType !== 'dm' || !currentDmUser?.uid) return;
+  const baseRef = getDmCallBaseRef();
+  if (!baseRef) return;
+
+  if (dmCallOfferRef) dmCallOfferRef.off();
+  dmCallOfferRef = baseRef.child('offer');
+  dmCallOfferRef.on('value', (snap) => {
+    const offers = snap.val() || {};
+    const offer = offers[currentDmUser.uid];
+    if (!offer || offer.to !== currentUser.uid) return;
+    if (dmCallPc) return;
+    dmIncomingOffer = offer;
+    showDmIncoming(true, currentDmUser.username);
+  });
 }

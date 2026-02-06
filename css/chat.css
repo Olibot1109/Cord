@@ -293,6 +293,14 @@
   white-space: pre-wrap;
 }
 
+.mention-pill {
+  color: #00a8ff;
+  background: rgba(0, 168, 255, 0.12);
+  padding: 0 4px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
 .message-image {
   max-width: 400px;
   max-height: 300px;
@@ -470,6 +478,8 @@
 .message-input-area {
   padding: 0 16px 24px;
   flex-shrink: 0;
+  position: relative;
+  overflow: visible;
 }
 
 .message-input-wrapper {
@@ -553,4 +563,3 @@
 
 .char-count.warning { color: #f0b232; }
 .char-count.error { color: #f23f43; }
-

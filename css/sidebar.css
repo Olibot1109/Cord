@@ -50,6 +50,7 @@
   object-fit: cover;
 }
 
+
 .server-icon.home {
   background: #313338;
   color: #dbdee1;
@@ -174,6 +175,7 @@
 
 .channel-item.active .channel-icon { color: #fff; }
 .channel-item.locked .channel-icon { color: #f23f43; }
+
 
 .voice-users {
   margin-left: 28px;
@@ -350,4 +352,3 @@
   background: #35363c;
   color: #dbdee1;
 }
-

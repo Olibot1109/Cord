@@ -42,6 +42,163 @@
   30% { transform: translateY(-4px); }
 }
 
+/* DM Call */
+.dm-call-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dm-call-window {
+  width: min(900px, 95vw);
+  background: #1e1f22;
+  border: 1px solid #2b2d31;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+
+.dm-call-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #2b2d31;
+  color: #f2f3f5;
+  font-weight: 600;
+}
+
+.dm-call-videos {
+  position: relative;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#dmRemoteVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+#dmLocalVideo {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 180px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 2px solid #2b2d31;
+  background: #111;
+}
+
+.dm-call-incoming {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3001;
+}
+
+.dm-call-incoming-card {
+  background: #2b2d31;
+  border: 1px solid #1e1f22;
+  border-radius: 10px;
+  padding: 12px 16px;
+  color: #f2f3f5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+
+.dm-call-incoming-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.input-btn.danger {
+  background: #f23f43;
+}
+
+.input-btn.danger:hover {
+  background: #d83236;
+}
+
+/* Mention dropdown */
+.mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 16px;
+  background: #2b2d31;
+  border: 1px solid #1e1f22;
+  border-radius: 8px;
+  width: 280px;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 1200;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #dbdee1;
+  cursor: pointer;
+}
+
+.mention-item:hover,
+.mention-item.active {
+  background: #35363c;
+}
+
+.mention-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #3f4147;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 12px;
+  color: #fff;
+}
+
+.mention-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Slowmode notice */
+.slowmode-notice {
+  display: none;
+  margin: 6px 16px 0;
+  padding: 6px 10px;
+  background: #2b2d31;
+  color: #f2f3f5;
+  border: 1px solid #1e1f22;
+  border-radius: 6px;
+  font-size: 12px;
+  width: fit-content;
+}
+
+.slowmode-notice.active {
+  display: inline-flex;
+}
+
 /* Toast notifications */
 .toast-container {
   position: fixed;

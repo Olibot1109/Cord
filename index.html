@@ -15,8 +15,15 @@
 <link rel="stylesheet" href="css/member.css">
 <link rel="stylesheet" href="css/modals.css">
 <link rel="stylesheet" href="css/extras.css">
+<script src="js/app-core.js" defer></script>
+<script src="js/servers.js" defer></script>
+<script src="js/channels.js" defer></script>
+<script src="js/messages.js" defer></script>
+<script src="js/members.js" defer></script>
+<script src="js/admin.js" defer></script>
+<script src="js/permissions.js" defer></script>
+<script src="js/ui.js" defer></script>
 <script src="js/voice.js" defer></script>
-<script src="js/main.js" defer></script>
 </head>
 <body>
 
@@ -118,6 +125,9 @@
       <button class="header-btn" onclick="toggleMemberList()" id="memberListBtn">
         <span><i class="fa-solid fa-users"></i></span> Members
       </button>
+      <button class="header-btn" onclick="startDmVideoCall()" id="dmCallBtn" style="display:none;">
+        <span><i class="fa-solid fa-video"></i></span> Video Call
+      </button>
       <button class="header-btn" onclick="showModal('addFriend')" id="addFriendBtn" style="display:none;">
         <span><i class="fa-solid fa-user-plus"></i></span> Add Friend
       </button>
@@ -166,11 +176,36 @@
         <input type="file" id="imageInput" accept="image/*" style="display:none;">
       </div>
     </div>
+    <div class="slowmode-notice" id="slowmodeNotice" aria-live="polite"></div>
+    <div class="mention-dropdown" id="mentionDropdown" style="display:none;"></div>
   </div>
 </div>
 
 <div class="member-list" id="memberList">
   <div id="membersContainer"></div>
+</div>
+
+<!-- DM Call -->
+<div class="dm-call-overlay" id="dmCallOverlay" style="display:none;">
+  <div class="dm-call-window">
+    <div class="dm-call-header">
+      <div class="dm-call-title" id="dmCallTitle">Video Call</div>
+      <button class="action-btn delete" onclick="endDmCall()" title="End Call"><i class="fa-solid fa-phone-slash"></i></button>
+    </div>
+    <div class="dm-call-videos">
+      <video id="dmRemoteVideo" autoplay playsinline></video>
+      <video id="dmLocalVideo" autoplay muted playsinline></video>
+    </div>
+  </div>
+</div>
+<div class="dm-call-incoming" id="dmCallIncoming" style="display:none;">
+  <div class="dm-call-incoming-card">
+    <div class="dm-call-incoming-title" id="dmCallIncomingName">Incoming video call</div>
+    <div class="dm-call-incoming-actions">
+      <button class="input-btn" onclick="acceptDmCall()">Accept</button>
+      <button class="input-btn danger" onclick="declineDmCall()">Decline</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modals -->
@@ -528,6 +563,12 @@
               </label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                 <input type="checkbox" id="permViewChannels"> View Channels
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="permManageServer"> Manage Server
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="permMentionEveryone"> Mention @here/@everyone
               </label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                 <input type="checkbox" id="permHoist"> Hoist Role

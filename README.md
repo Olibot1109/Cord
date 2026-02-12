@@ -1,10 +1,12 @@
 # Cord (Node.js backend)
 
 Firebase has been removed. The app now uses a local Node.js backend with JSON persistence.
+Auth, reads, writes, and realtime updates are all handled through Socket.IO events (no REST API for app data).
 
 ## Run
 
 ```bash
+npm install
 npm start
 ```
 

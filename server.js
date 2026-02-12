@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
 const crypto = require("crypto");
+const { Server: SocketServer } = require("socket.io");
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
@@ -24,6 +25,7 @@ const MIME_TYPES = {
 
 let db = {};
 let saveTimer = null;
+let io = null;
 
 function normalizePath(inputPath) {
   if (inputPath == null) return "";
@@ -33,30 +35,6 @@ function normalizePath(inputPath) {
 function splitPath(inputPath) {
   const clean = normalizePath(inputPath);
   return clean ? clean.split("/") : [];
-}
-
-function decodeJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => {
-      if (chunks.length === 0) {
-        resolve({});
-        return;
-      }
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function respondJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { "Content-Type": MIME_TYPES[".json"] });
-  res.end(JSON.stringify(payload));
 }
 
 function safeClone(value) {
@@ -94,10 +72,12 @@ function getByPath(inputPath) {
 }
 
 function setByPath(inputPath, value) {
+  const normalized = normalizePath(inputPath);
   const parts = splitPath(inputPath);
   if (parts.length === 0) {
     db = resolveServerValue(value) ?? {};
     scheduleSave();
+    emitDbChanged("");
     return;
   }
   let node = db;
@@ -110,13 +90,16 @@ function setByPath(inputPath, value) {
   }
   node[parts[parts.length - 1]] = resolveServerValue(value);
   scheduleSave();
+  emitDbChanged(normalized);
 }
 
 function deleteByPath(inputPath) {
+  const normalized = normalizePath(inputPath);
   const parts = splitPath(inputPath);
   if (parts.length === 0) {
     db = {};
     scheduleSave();
+    emitDbChanged("");
     return;
   }
   let node = db;
@@ -128,6 +111,7 @@ function deleteByPath(inputPath) {
   if (node && typeof node === "object") {
     delete node[parts[parts.length - 1]];
     scheduleSave();
+    emitDbChanged(normalized);
   }
 }
 
@@ -151,6 +135,14 @@ function updateRoot(updates) {
       return;
     }
     setByPath(key, value);
+  });
+}
+
+function emitDbChanged(changedPath) {
+  if (!io) return;
+  io.emit("db:changed", {
+    path: normalizePath(changedPath),
+    at: Date.now()
   });
 }
 
@@ -187,76 +179,9 @@ function loadData() {
   }
 }
 
-async function handleApi(req, res, reqUrl) {
-  if (req.method === "POST" && reqUrl.pathname === "/api/auth/anonymous") {
-    const body = await decodeJsonBody(req).catch(() => ({}));
-    const uid = body.uid && typeof body.uid === "string" ? body.uid : `u_${crypto.randomUUID().replace(/-/g, "")}`;
-    respondJson(res, 200, { uid });
-    return true;
-  }
-
-  if (reqUrl.pathname === "/api/db" && req.method === "GET") {
-    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
-    respondJson(res, 200, { value: getByPath(targetPath) });
-    return true;
-  }
-
-  if (reqUrl.pathname === "/api/db" && req.method === "PUT") {
-    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
-    const body = await decodeJsonBody(req).catch(() => null);
-    if (!body || !("value" in body)) {
-      respondJson(res, 400, { error: "Missing value" });
-      return true;
-    }
-    setByPath(targetPath, body.value);
-    respondJson(res, 200, { ok: true });
-    return true;
-  }
-
-  if (reqUrl.pathname === "/api/db" && req.method === "PATCH") {
-    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
-    const body = await decodeJsonBody(req).catch(() => null);
-    if (!body || typeof body.value !== "object" || Array.isArray(body.value) || body.value == null) {
-      respondJson(res, 400, { error: "PATCH expects object value" });
-      return true;
-    }
-    updateByPath(targetPath, body.value);
-    respondJson(res, 200, { ok: true });
-    return true;
-  }
-
-  if (reqUrl.pathname === "/api/db" && req.method === "DELETE") {
-    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
-    deleteByPath(targetPath);
-    respondJson(res, 200, { ok: true });
-    return true;
-  }
-
-  if (reqUrl.pathname === "/api/db/update-root" && req.method === "POST") {
-    const body = await decodeJsonBody(req).catch(() => null);
-    if (!body || typeof body.updates !== "object" || body.updates == null) {
-      respondJson(res, 400, { error: "Missing updates" });
-      return true;
-    }
-    updateRoot(body.updates);
-    respondJson(res, 200, { ok: true });
-    return true;
-  }
-
-  return false;
-}
-
 async function requestHandler(req, res) {
   try {
     const reqUrl = new URL(req.url, `http://${req.headers.host || `localhost:${PORT}`}`);
-
-    if (reqUrl.pathname.startsWith("/api/")) {
-      const handled = await handleApi(req, res, reqUrl);
-      if (!handled) {
-        respondJson(res, 404, { error: "Not found" });
-      }
-      return;
-    }
 
     const filePath = sanitizeStaticPath(reqUrl.pathname);
     if (!filePath.startsWith(ROOT_DIR)) {
@@ -275,13 +200,70 @@ async function requestHandler(req, res) {
     fs.createReadStream(filePath).pipe(res);
   } catch (error) {
     console.error(error);
-    respondJson(res, 500, { error: "Internal server error" });
+    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "Internal server error" }));
   }
 }
 
 loadData();
 
 const server = http.createServer(requestHandler);
+io = new SocketServer(server, {
+  cors: { origin: "*" }
+});
+
+io.on("connection", (socket) => {
+  socket.on("auth:anonymous", (payload, ack) => {
+    const uid = payload && typeof payload.uid === "string" && payload.uid.trim()
+      ? payload.uid
+      : `u_${crypto.randomUUID().replace(/-/g, "")}`;
+    if (typeof ack === "function") {
+      ack({ ok: true, uid });
+    }
+  });
+
+  socket.on("db:get", (payload, ack) => {
+    const targetPath = normalizePath(payload?.path || "");
+    if (typeof ack === "function") {
+      ack({ ok: true, value: getByPath(targetPath) });
+    }
+  });
+
+  socket.on("db:set", (payload, ack) => {
+    if (!payload || !Object.prototype.hasOwnProperty.call(payload, "value")) {
+      if (typeof ack === "function") ack({ ok: false, error: "Missing value" });
+      return;
+    }
+    setByPath(payload.path || "", payload.value);
+    if (typeof ack === "function") ack({ ok: true });
+  });
+
+  socket.on("db:update", (payload, ack) => {
+    if (!payload || typeof payload.value !== "object" || payload.value == null || Array.isArray(payload.value)) {
+      if (typeof ack === "function") ack({ ok: false, error: "PATCH expects object value" });
+      return;
+    }
+    updateByPath(payload.path || "", payload.value);
+    if (typeof ack === "function") ack({ ok: true });
+  });
+
+  socket.on("db:remove", (payload, ack) => {
+    deleteByPath(payload?.path || "");
+    if (typeof ack === "function") ack({ ok: true });
+  });
+
+  socket.on("db:updateRoot", (payload, ack) => {
+    if (!payload || typeof payload.updates !== "object" || payload.updates == null) {
+      if (typeof ack === "function") ack({ ok: false, error: "Missing updates" });
+      return;
+    }
+    updateRoot(payload.updates);
+    if (typeof ack === "function") ack({ ok: true });
+  });
+
+  socket.emit("db:changed", { path: "", at: Date.now() });
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`Cord server running at http://${HOST}:${PORT}`);
 });

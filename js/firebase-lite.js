@@ -1,23 +1,10 @@
 (() => {
   const SERVER_VALUE_TIMESTAMP = { ".sv": "timestamp" };
-  const LISTENER_POLL_MS = 700;
+  const RPC_TIMEOUT_MS = 10000;
 
   function normalizePath(path) {
     if (path == null) return "";
     return String(path).replace(/^\/+|\/+$/g, "");
-  }
-
-  function pathKey(path, query) {
-    return `${normalizePath(path)}|${JSON.stringify(query || {})}`;
-  }
-
-  function deepClone(value) {
-    if (value === undefined) return undefined;
-    return JSON.parse(JSON.stringify(value));
-  }
-
-  function deepEqual(a, b) {
-    return JSON.stringify(a) === JSON.stringify(b);
   }
 
   function splitPath(path) {
@@ -30,10 +17,99 @@
     return parts.length ? parts[parts.length - 1] : null;
   }
 
+  function pathsOverlap(a, b) {
+    const pa = normalizePath(a);
+    const pb = normalizePath(b);
+    if (!pa || !pb) return true;
+    return pa === pb || pa.startsWith(`${pb}/`) || pb.startsWith(`${pa}/`);
+  }
+
+  function deepClone(value) {
+    if (value === undefined) return undefined;
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function deepEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
   function sortedObjectEntries(obj) {
     return Object.keys(obj || {})
       .sort((a, b) => a.localeCompare(b))
       .map((key) => [key, obj[key]]);
+  }
+
+  class SocketBridge {
+    constructor(baseUrl) {
+      this.baseUrl = baseUrl;
+      this.connected = false;
+      this.socket = null;
+      this._connectListeners = new Set();
+      this._disconnectListeners = new Set();
+      this._connect();
+    }
+
+    _connect() {
+      if (typeof window.io !== "function") {
+        throw new Error("Socket.IO client not loaded");
+      }
+      this.socket = window.io(this.baseUrl || undefined, {
+        transports: ["websocket", "polling"]
+      });
+      this.connected = !!this.socket.connected;
+      this.socket.on("connect", () => {
+        this.connected = true;
+        this._connectListeners.forEach((cb) => cb());
+      });
+      this.socket.on("disconnect", () => {
+        this.connected = false;
+        this._disconnectListeners.forEach((cb) => cb());
+      });
+    }
+
+    on(eventName, callback) {
+      this.socket.on(eventName, callback);
+      return () => this.socket.off(eventName, callback);
+    }
+
+    onConnect(callback) {
+      this._connectListeners.add(callback);
+      return () => this._connectListeners.delete(callback);
+    }
+
+    onDisconnect(callback) {
+      this._disconnectListeners.add(callback);
+      return () => this._disconnectListeners.delete(callback);
+    }
+
+    request(eventName, payload) {
+      return new Promise((resolve, reject) => {
+        let done = false;
+        const finish = (fn, value) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          fn(value);
+        };
+        const send = () => {
+          try {
+            this.socket.emit(eventName, payload || {}, (response) => {
+              finish(resolve, response || {});
+            });
+          } catch (error) {
+            finish(reject, error);
+          }
+        };
+        const timer = setTimeout(() => {
+          finish(reject, new Error(`Socket RPC timeout: ${eventName}`));
+        }, RPC_TIMEOUT_MS);
+        if (this.socket.connected) {
+          send();
+          return;
+        }
+        this.socket.once("connect", send);
+      });
+    }
   }
 
   class DataSnapshot {
@@ -52,26 +128,21 @@
   }
 
   class AuthLite {
-    constructor(baseUrl) {
-      this.baseUrl = baseUrl;
+    constructor(bridge) {
+      this.bridge = bridge;
       this._cachedUser = null;
     }
 
     async signInAnonymously() {
-      if (this._cachedUser && this._cachedUser.uid) {
+      if (this._cachedUser?.uid) {
         return { user: deepClone(this._cachedUser) };
       }
       const existingUid = localStorage.getItem("cord_uid");
-      const response = await fetch(`${this.baseUrl}/api/auth/anonymous`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: existingUid || undefined })
-      });
-      if (!response.ok) {
-        throw new Error(`Anonymous auth failed (${response.status})`);
+      const response = await this.bridge.request("auth:anonymous", { uid: existingUid || undefined });
+      if (!response?.ok || !response.uid) {
+        throw new Error(response?.error || "Anonymous auth failed");
       }
-      const payload = await response.json();
-      const user = { uid: String(payload.uid) };
+      const user = { uid: String(response.uid) };
       localStorage.setItem("cord_uid", user.uid);
       this._cachedUser = user;
       return { user: deepClone(user) };
@@ -86,8 +157,7 @@
     }
 
     child(segment) {
-      const next = normalizePath(`${this._path}/${segment}`);
-      return new QueryRef(this._database, next, this._query);
+      return new QueryRef(this._database, normalizePath(`${this._path}/${segment}`), this._query);
     }
 
     orderByKey() {
@@ -123,9 +193,7 @@
     }
 
     update(value) {
-      if (this._path === "") {
-        return this._database._updateRoot(value);
-      }
+      if (this._path === "") return this._database._updateRoot(value);
       return this._database._updateValue(this._path, value);
     }
 
@@ -155,12 +223,24 @@
   }
 
   class DatabaseLite {
-    constructor(baseUrl) {
-      this.baseUrl = baseUrl;
+    constructor(bridge) {
+      this.bridge = bridge;
       this._listeners = new Map();
       this._nextListenerId = 1;
       this._lastPushTime = 0;
       this._pushIncrement = 0;
+
+      this.bridge.on("db:changed", (payload) => {
+        const changedPath = normalizePath(payload?.path || "");
+        this._onServerChange(changedPath);
+      });
+      this.bridge.onConnect(() => {
+        this._onServerChange("");
+        this._onServerChange(".info/connected");
+      });
+      this.bridge.onDisconnect(() => {
+        this._onServerChange(".info/connected");
+      });
     }
 
     ref(path = "") {
@@ -168,8 +248,7 @@
     }
 
     _makeSnapshot(path, value, keyOverride) {
-      const key = keyOverride ?? getLastSegment(path);
-      return new DataSnapshot(value, key);
+      return new DataSnapshot(value, keyOverride ?? getLastSegment(path));
     }
 
     _applyQuery(value, query) {
@@ -177,9 +256,7 @@
       if (value == null || typeof value !== "object" || Array.isArray(value)) return value;
 
       let entries = sortedObjectEntries(value);
-      if (query.limitToLast) {
-        entries = entries.slice(-query.limitToLast);
-      }
+      if (query.limitToLast) entries = entries.slice(-query.limitToLast);
       const next = {};
       entries.forEach(([k, v]) => {
         next[k] = v;
@@ -190,53 +267,39 @@
     async _readValue(path, query) {
       const normalizedPath = normalizePath(path);
       if (normalizedPath === ".info/connected") {
-        return true;
+        return !!this.bridge.connected;
       }
-      const url = new URL(`${this.baseUrl}/api/db`, window.location.origin);
-      url.searchParams.set("path", normalizedPath);
-      const response = await fetch(url.toString(), { method: "GET" });
-      if (!response.ok) {
-        throw new Error(`Read failed (${response.status})`);
+      const response = await this.bridge.request("db:get", { path: normalizedPath });
+      if (!response?.ok) {
+        throw new Error(response?.error || "db:get failed");
       }
-      const payload = await response.json();
-      return this._applyQuery(payload.value, query);
+      return this._applyQuery(response.value, query);
     }
 
     async _setValue(path, value) {
-      const normalizedPath = normalizePath(path);
-      const response = await fetch(`${this.baseUrl}/api/db?path=${encodeURIComponent(normalizedPath)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value })
+      const response = await this.bridge.request("db:set", {
+        path: normalizePath(path),
+        value
       });
-      if (!response.ok) throw new Error(`Set failed (${response.status})`);
+      if (!response?.ok) throw new Error(response?.error || "db:set failed");
     }
 
     async _updateValue(path, value) {
-      const normalizedPath = normalizePath(path);
-      const response = await fetch(`${this.baseUrl}/api/db?path=${encodeURIComponent(normalizedPath)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value })
+      const response = await this.bridge.request("db:update", {
+        path: normalizePath(path),
+        value
       });
-      if (!response.ok) throw new Error(`Update failed (${response.status})`);
+      if (!response?.ok) throw new Error(response?.error || "db:update failed");
     }
 
     async _updateRoot(updates) {
-      const response = await fetch(`${this.baseUrl}/api/db/update-root`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: updates || {} })
-      });
-      if (!response.ok) throw new Error(`Root update failed (${response.status})`);
+      const response = await this.bridge.request("db:updateRoot", { updates: updates || {} });
+      if (!response?.ok) throw new Error(response?.error || "db:updateRoot failed");
     }
 
     async _removeValue(path) {
-      const normalizedPath = normalizePath(path);
-      const response = await fetch(`${this.baseUrl}/api/db?path=${encodeURIComponent(normalizedPath)}`, {
-        method: "DELETE"
-      });
-      if (!response.ok) throw new Error(`Remove failed (${response.status})`);
+      const response = await this.bridge.request("db:remove", { path: normalizePath(path) });
+      if (!response?.ok) throw new Error(response?.error || "db:remove failed");
     }
 
     _generatePushKey() {
@@ -253,6 +316,13 @@
       return `-${t}${i}${r}`;
     }
 
+    _onServerChange(changedPath) {
+      for (const listener of this._listeners.values()) {
+        if (!pathsOverlap(listener.path, changedPath)) continue;
+        this._pollListener(listener).catch(() => {});
+      }
+    }
+
     _addListener(path, query, eventName, callback) {
       const id = this._nextListenerId++;
       const listener = {
@@ -261,16 +331,12 @@
         query: { ...(query || {}) },
         eventName,
         callback,
-        timer: null,
         initialized: false,
         lastValue: undefined,
         lastChildren: {}
       };
       this._listeners.set(id, listener);
       this._pollListener(listener).catch(() => {});
-      listener.timer = setInterval(() => {
-        this._pollListener(listener).catch(() => {});
-      }, LISTENER_POLL_MS);
       return callback;
     }
 
@@ -282,7 +348,6 @@
         if (JSON.stringify(listener.query || {}) !== queryHash) continue;
         if (eventName && listener.eventName !== eventName) continue;
         if (callback && listener.callback !== callback) continue;
-        clearInterval(listener.timer);
         this._listeners.delete(id);
       }
     }
@@ -331,9 +396,10 @@
     }
   }
 
-  const apiBase = window.CORD_API_BASE || "";
-  const authInstance = new AuthLite(apiBase);
-  const dbInstance = new DatabaseLite(apiBase);
+  const baseUrl = window.CORD_API_BASE || "";
+  const bridge = new SocketBridge(baseUrl);
+  const authInstance = new AuthLite(bridge);
+  const dbInstance = new DatabaseLite(bridge);
 
   const firebaseCompat = {
     initializeApp: () => ({ name: "cord-local" }),

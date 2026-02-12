@@ -1,16 +1,5 @@
-// Firebase Configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyA4BYjOa__uKZjOBvS5p_uMxmJ6AMsKcpg",
-  authDomain: "chat1-6cc2e.firebaseapp.com",
-  databaseURL: "https://chat1-6cc2e-default-rtdb.firebaseio.com",
-  projectId: "chat1-6cc2e",
-  storageBucket: "chat1-6cc2e.firebasestorage.app",
-  messagingSenderId: "771765903902",
-  appId: "1:771765903902:web:a6fb2e71b059c20ba7840f"
-};
-
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
+// Initialize local backend compatibility layer
+firebase.initializeApp();
 const db = firebase.database();
 const auth = firebase.auth();
 

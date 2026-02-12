@@ -56,6 +56,51 @@ let rolesListRef = null;
 let rolesCache = {};
 let presenceListenerSet = false;
 
+function sanitizeCookieProfile(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  if (typeof raw.username === 'string' && raw.username.trim()) {
+    out.username = raw.username.trim();
+  }
+  if (typeof raw.status === 'string' && raw.status.trim()) {
+    out.status = raw.status.trim();
+  }
+  if (typeof raw.bio === 'string') {
+    out.bio = raw.bio;
+  }
+  if (typeof raw.role === 'string' && raw.role.trim()) {
+    out.role = raw.role.trim();
+  }
+  return out;
+}
+
+function hydrateProfileFromDatabase() {
+  if (!currentUser) return Promise.resolve();
+  return db.ref(`profiles/${currentUser.uid}`).once('value').then((snap) => {
+    const remote = snap.val();
+    if (remote && typeof remote === 'object') {
+      userProfile = {
+        ...userProfile,
+        username: remote.username || userProfile.username,
+        avatar: remote.avatar || null,
+        bio: remote.bio || '',
+        status: remote.status || userProfile.status
+      };
+      return;
+    }
+    // First-time profile bootstrap
+    return db.ref(`profiles/${currentUser.uid}`).set({
+      username: userProfile.username,
+      avatar: userProfile.avatar || null,
+      bio: userProfile.bio || '',
+      status: userProfile.status || 'online',
+      lastSeen: Date.now()
+    });
+  }).catch((error) => {
+    console.error('[Profile] Failed to hydrate profile:', error);
+  });
+}
+
 function resolveUserServersFromMembership() {
   if (!currentUser) return Promise.resolve([]);
 
@@ -127,10 +172,28 @@ document.addEventListener('DOMContentLoaded', () => {
   auth.signInAnonymously().then(user => {
     currentUser = user.user;
     userProfile.uid = currentUser.uid;
-    saveCookies();
-    updateProfileData();
+    hydrateProfileFromDatabase().then(() => {
+      updateUserDisplay();
+      saveCookies();
+      if (typeof updateProfileData === 'function') {
+        updateProfileData();
+      } else {
+        db.ref(`profiles/${currentUser.uid}`).update({
+          username: userProfile.username,
+          bio: userProfile.bio || '',
+          status: userProfile.status || 'online',
+          lastSeen: Date.now()
+        });
+      }
+    });
     if (typeof startMentionWatcher === 'function') {
       startMentionWatcher();
+    }
+    if (typeof startGlobalDmUnreadWatcher === 'function') {
+      startGlobalDmUnreadWatcher();
+    }
+    if (typeof startGlobalDmCallListeners === 'function') {
+      startGlobalDmCallListeners();
     }
     setupMentionNotifications();
     ensurePresenceConnectionListener();
@@ -184,7 +247,14 @@ document.addEventListener('DOMContentLoaded', () => {
         isOnboarding = true;
         currentServer = null;
         setCookie('lastServer', '', -1);
-        showModal('welcome');
+        const openedUpdates = typeof showStartupUpdates === 'function' ? showStartupUpdates() : false;
+        if (!openedUpdates) {
+          showModal('welcome');
+        } else {
+          if (typeof onStartupUpdatesClosed === 'function') {
+            onStartupUpdatesClosed(() => showModal('welcome'));
+          }
+        }
         return;
       }
 
@@ -192,6 +262,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const lastServer = getCookie('lastServer');
       currentServer = lastServer && userServers.includes(lastServer) ? lastServer : userServers[0];
       initializeApp();
+      if (typeof showStartupUpdates === 'function') {
+        setTimeout(() => showStartupUpdates(), 200);
+      }
     }).catch(error => {
       console.error('[Auth] Failed to load server membership:', error);
       showToast('Failed to load servers: ' + error.message, 'error');
@@ -227,6 +300,9 @@ function initializeApp() {
   });
   
   loadUserServers();
+  if (typeof refreshAllDmUnreadNow === 'function') {
+    setTimeout(() => refreshAllDmUnreadNow(), 120);
+  }
   if (currentServer) {
     selectServer(currentServer);
   }
@@ -239,7 +315,8 @@ function loadCookies() {
   const profile = getCookie('userProfile');
   if (profile) {
     try {
-      userProfile = { ...userProfile, ...JSON.parse(profile) };
+      const parsed = JSON.parse(profile);
+      userProfile = { ...userProfile, ...sanitizeCookieProfile(parsed) };
     } catch (e) { }
   }
 
@@ -256,7 +333,13 @@ function loadCookies() {
 }
 
 function saveCookies() {
-  setCookie('userProfile', JSON.stringify(userProfile), 365);
+  const slimProfile = {
+    username: userProfile.username,
+    status: userProfile.status,
+    bio: userProfile.bio || '',
+    role: userProfile.role || 'Member'
+  };
+  setCookie('userProfile', JSON.stringify(slimProfile), 365);
   setCookie('lastChannelsByServer', JSON.stringify(lastChannelsByServer), 365);
   if (currentServer) setCookie('lastServer', currentServer, 365);
   // Clear legacy cookie so server membership is sourced from Firebase only.
@@ -426,6 +509,10 @@ function setupFileInputs() {
 
 function setupMentionNotifications() {
   return;
+}
+
+function syncActiveViewPresence() {
+  // Intentionally disabled. Mention auto-read is handled by current channel checks.
 }
 
 function refreshPresenceForServers() {

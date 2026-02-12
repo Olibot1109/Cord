@@ -101,6 +101,15 @@
   background: #111;
 }
 
+.dm-call-controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  background: #1f2023;
+  border-top: 1px solid #2b2d31;
+}
+
 .dm-call-incoming {
   position: fixed;
   bottom: 24px;
@@ -124,6 +133,146 @@
 .dm-call-incoming-actions {
   display: flex;
   gap: 8px;
+}
+
+.dm-call-mini-dock {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 3002;
+  background: #1f2023;
+  border: 1px solid #2b2d31;
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.dm-call-mini-main {
+  border: none;
+  background: #2b2d31;
+  color: #dbdee1;
+  border-radius: 8px;
+  height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.dm-call-mini-main:hover {
+  background: #35363c;
+}
+
+.dm-call-mini-handle {
+  width: 28px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #949ba4;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background: #2b2d31;
+}
+
+.dm-call-mini-handle:hover {
+  color: #dbdee1;
+  background: #35363c;
+}
+
+.dm-call-mini-handle:active,
+.dm-call-mini-dock.dragging .dm-call-mini-handle {
+  cursor: grabbing;
+}
+
+.voice-panel.compact {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voice-panel.compact .voice-info {
+  margin-bottom: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-panel.compact .voice-video-grid {
+  display: none;
+}
+
+.voice-panel.compact .voice-controls {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+
+.voice-panel.compact .voice-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 14px;
+}
+
+@media (max-width: 680px) {
+  .dm-call-overlay {
+    padding: 10px;
+  }
+
+  .dm-call-window {
+    width: 100%;
+  }
+
+  #dmLocalVideo {
+    width: 128px;
+    height: 92px;
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .dm-call-mini-dock {
+    right: 10px;
+    left: 10px;
+    bottom: 10px;
+  }
+
+  .dm-call-mini-main {
+    flex: 1;
+    justify-content: flex-start;
+  }
+
+  .voice-panel.compact {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .voice-panel.compact .voice-controls {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .voice-panel.compact .voice-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+  }
 }
 
 .input-btn.danger {

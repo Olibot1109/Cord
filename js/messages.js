@@ -16,7 +16,13 @@ let mentionStartIndex = 0;
 let mentionSelectedIndex = 0;
 let mentionListenersSet = false;
 const SLASH_COMMANDS = [
-  { name: 'ai', usage: '/ai <message>', description: 'Ask AI a question' }
+  { name: 'ai', usage: '/ai <message>', description: 'Ask AI a question' },
+  { name: 'ping', usage: '/ping', description: 'Show bot latency reply' },
+  { name: 'me', usage: '/me <action>', description: 'Send an action message' },
+  { name: 'shrug', usage: '/shrug [text]', description: 'Send text with a shrug' },
+  { name: 'roll', usage: '/roll [NdM]', description: 'Roll dice, like 2d6 or 1d20' },
+  { name: 'mc', usage: '/mc', description: 'Show server member count and stats' },
+  { name: 'help', usage: '/help', description: 'List all available commands' }
 ];
 let slashCommandActive = false;
 let slashCommandSelectedIndex = 0;
@@ -27,6 +33,179 @@ const messageEmbedCache = {};
 const messageEmbedPromises = {};
 const pruneTimersByRef = new Map();
 const pruneErrorShownByRef = new Set();
+const MESSAGE_DEBUG = true;
+let activeMessageLoadToken = 0;
+let voiceRecorder = null;
+let voiceRecordStream = null;
+let voiceRecordChunks = [];
+let voiceRecording = false;
+let voiceDiscardOnStop = false;
+let voiceRecordStartAt = 0;
+let voiceRecordTimer = null;
+
+function messageDebugLog(event, details = {}) {
+  if (!MESSAGE_DEBUG) return;
+  const context = {
+    server: currentServer || null,
+    channel: currentChannel || null,
+    channelType: currentChannelType || null,
+    uid: currentUser?.uid || null,
+    listeners: messageListeners.length
+  };
+  console.log(`[Messages][DBG] ${event}`, { ...context, ...details });
+}
+
+function formatVoiceDuration(ms) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function buildVoiceBarsMarkup(count = 6) {
+  let bars = '';
+  for (let i = 0; i < count; i += 1) {
+    bars += '<span class="voice-bar"></span>';
+  }
+  return bars;
+}
+
+function pauseOtherVoicePlayers(currentAudio) {
+  document.querySelectorAll('.message-voice-audio').forEach((audio) => {
+    if (audio !== currentAudio) {
+      audio.pause();
+    }
+  });
+}
+
+function updateVoicePlayerUi(container) {
+  if (!container) return;
+  const audio = container.querySelector('.message-voice-audio');
+  if (!audio) return;
+  const playBtn = container.querySelector('.voice-play-btn');
+  const timeEl = container.querySelector('.voice-time');
+  const barsEl = container.querySelector('.voice-bars');
+  const speedBtn = container.querySelector('.voice-speed-btn');
+  const volumeBtn = container.querySelector('.voice-volume-btn');
+  const totalMs = Number(container.dataset.voiceDurationMs || 0);
+  const totalSec = Number.isFinite(audio.duration) && audio.duration > 0
+    ? Math.floor(audio.duration)
+    : Math.floor(totalMs / 1000);
+  const currentSec = Math.max(0, Math.floor(audio.currentTime || 0));
+  const displaySec = audio.paused ? totalSec : currentSec;
+
+  if (playBtn) {
+    playBtn.innerHTML = audio.paused
+      ? '<i class="fa-solid fa-play"></i>'
+      : '<i class="fa-solid fa-pause"></i>';
+  }
+  if (timeEl) {
+    timeEl.textContent = formatVoiceDuration(displaySec * 1000);
+  }
+  if (barsEl) {
+    barsEl.classList.toggle('playing', !audio.paused);
+  }
+  if (speedBtn) {
+    const speed = Number(audio.playbackRate || 1);
+    speedBtn.textContent = `${Number.isInteger(speed) ? String(speed) : speed.toFixed(1)}x`;
+  }
+  if (volumeBtn) {
+    const icon = audio.muted || audio.volume === 0
+      ? 'fa-volume-xmark'
+      : 'fa-volume-high';
+    volumeBtn.innerHTML = `<i class="fa-solid ${icon}"></i>`;
+  }
+}
+
+function initVoiceMessagePlayer(container) {
+  if (!container || container.dataset.voiceInit === '1') return;
+  const audio = container.querySelector('.message-voice-audio');
+  const playBtn = container.querySelector('.voice-play-btn');
+  const speedBtn = container.querySelector('.voice-speed-btn');
+  const volumeBtn = container.querySelector('.voice-volume-btn');
+  if (!audio || !playBtn || !speedBtn || !volumeBtn) return;
+
+  container.dataset.voiceInit = '1';
+  const speedSteps = [1, 1.25, 1.5, 2];
+
+  playBtn.addEventListener('click', () => {
+    if (audio.paused) {
+      pauseOtherVoicePlayers(audio);
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
+    }
+  });
+
+  speedBtn.addEventListener('click', () => {
+    const current = Number(audio.playbackRate || 1);
+    const index = speedSteps.indexOf(current);
+    const nextRate = speedSteps[(index + 1) % speedSteps.length];
+    audio.playbackRate = nextRate;
+    updateVoicePlayerUi(container);
+  });
+
+  volumeBtn.addEventListener('click', () => {
+    audio.muted = !audio.muted;
+    updateVoicePlayerUi(container);
+  });
+
+  ['play', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange', 'volumechange'].forEach((eventName) => {
+    audio.addEventListener(eventName, () => updateVoicePlayerUi(container));
+  });
+
+  updateVoicePlayerUi(container);
+}
+
+function updateVoiceRecordButton() {
+  const btn = document.getElementById('voiceRecordBtn');
+  if (!btn) return;
+  btn.classList.toggle('recording', voiceRecording);
+  btn.innerHTML = voiceRecording
+    ? '<i class="fa-solid fa-stop"></i> Recording...'
+    : '<i class="fa-solid fa-microphone"></i> Voice';
+}
+
+function resetVoiceRecordingState() {
+  if (voiceRecordTimer) {
+    clearTimeout(voiceRecordTimer);
+    voiceRecordTimer = null;
+  }
+  voiceRecorder = null;
+  voiceRecordChunks = [];
+  voiceRecording = false;
+  voiceDiscardOnStop = false;
+  voiceRecordStartAt = 0;
+  updateVoiceRecordButton();
+}
+
+function stopVoiceRecordingTracks() {
+  if (voiceRecordStream) {
+    voiceRecordStream.getTracks().forEach(track => track.stop());
+    voiceRecordStream = null;
+  }
+}
+
+function stopVoiceRecording(discard = false) {
+  if (!voiceRecorder || voiceRecorder.state === 'inactive') {
+    resetVoiceRecordingState();
+    stopVoiceRecordingTracks();
+    return;
+  }
+  voiceDiscardOnStop = voiceDiscardOnStop || discard;
+  voiceRecording = false;
+  updateVoiceRecordButton();
+  if (voiceRecordTimer) {
+    clearTimeout(voiceRecordTimer);
+    voiceRecordTimer = null;
+  }
+  try {
+    voiceRecorder.stop();
+  } catch (e) {
+    resetVoiceRecordingState();
+    stopVoiceRecordingTracks();
+  }
+}
 
 function getMessageProfile(uid) {
   if (!uid) return Promise.resolve(null);
@@ -62,6 +241,10 @@ function setSendControlsDisabled(disabled) {
   const pollBtn = document.getElementById('pollBtn');
   if (pollBtn) {
     pollBtn.disabled = disabled;
+  }
+  const voiceBtn = document.getElementById('voiceRecordBtn');
+  if (voiceBtn) {
+    voiceBtn.disabled = disabled;
   }
   if (disabled) {
     hideSlashCommandDropdown();
@@ -282,39 +465,139 @@ function runSlashCommand(text, messagesRef, options = {}) {
     return Promise.resolve(true);
   }
 
-  if (parsed.command !== 'ai') {
-    showToast(`Unknown command: /${parsed.command}`, 'error');
-    onError();
-    return Promise.resolve(true);
-  }
-  if (!parsed.args) {
-    showToast('Usage: /ai <message>', 'error');
-    onError();
-    return Promise.resolve(true);
-  }
-
-  showToast('AI is thinking...', 'info');
-  return requestAiCommandResponse(parsed.args).then(aiText => {
-    const aiMessage = {
-      author: 'AI',
-      text: aiText,
+  const pushCommandMessage = (payload) => {
+    return messagesRef.push({
       timestamp: Date.now(),
       uid: currentUser?.uid || 'system',
-      isAiResponse: true,
       commandMeta: {
         by: userProfile.username || 'User',
         byUid: currentUser?.uid || null,
         command: parsed.command
-      }
-    };
-
-    return messagesRef.push(aiMessage).then(() => {
+      },
+      ...payload
+    }).then(() => {
       onHandled();
+      return true;
     });
-  }).catch(err => {
-    showToast('AI command failed: ' + err.message, 'error');
-    onError();
-  }).then(() => true);
+  };
+
+  if (parsed.command === 'ai') {
+    if (!parsed.args) {
+      showToast('Usage: /ai <message>', 'error');
+      onError();
+      return Promise.resolve(true);
+    }
+    showToast('AI is thinking...', 'info');
+    return requestAiCommandResponse(parsed.args).then(aiText => {
+      return pushCommandMessage({
+        author: 'AI',
+        text: aiText,
+        isAiResponse: true
+      });
+    }).catch(err => {
+      showToast('AI command failed: ' + err.message, 'error');
+      onError();
+      return true;
+    });
+  }
+
+  if (parsed.command === 'ping') {
+    const startedAt = Date.now();
+    return pushCommandMessage({
+      author: 'System',
+      text: `Pong! ${Math.max(1, Date.now() - startedAt)}ms`,
+      role: 'System',
+      roleColor: '#23a559'
+    });
+  }
+
+  if (parsed.command === 'me') {
+    if (!parsed.args) {
+      showToast('Usage: /me <action>', 'error');
+      onError();
+      return Promise.resolve(true);
+    }
+    return pushCommandMessage({
+      author: userProfile.username || 'User',
+      text: `*${parsed.args}*`
+    });
+  }
+
+  if (parsed.command === 'shrug') {
+    const suffix = ' ¯\\_(ツ)_/¯';
+    const out = parsed.args ? `${parsed.args}${suffix}` : suffix.trim();
+    return pushCommandMessage({
+      author: userProfile.username || 'User',
+      text: out
+    });
+  }
+
+  if (parsed.command === 'roll') {
+    let count = 1;
+    let sides = 20;
+    const arg = (parsed.args || '').trim().toLowerCase();
+    if (arg) {
+      const match = arg.match(/^(\d{1,2})d(\d{1,4})$/);
+      if (!match) {
+        showToast('Usage: /roll [NdM], example /roll 2d6', 'error');
+        onError();
+        return Promise.resolve(true);
+      }
+      count = Math.max(1, Math.min(20, Number(match[1]) || 1));
+      sides = Math.max(2, Math.min(1000, Number(match[2]) || 20));
+    }
+    const rolls = [];
+    for (let i = 0; i < count; i += 1) {
+      rolls.push(Math.floor(Math.random() * sides) + 1);
+    }
+    const total = rolls.reduce((sum, n) => sum + n, 0);
+    const detail = count === 1 ? `${rolls[0]}` : `${rolls.join(', ')} (total ${total})`;
+    return pushCommandMessage({
+      author: 'System',
+      text: `${userProfile.username || 'User'} rolled ${count}d${sides}: ${detail}`,
+      role: 'System',
+      roleColor: '#23a559'
+    });
+  }
+
+  if (parsed.command === 'mc') {
+    if (!currentServer || currentChannelType !== 'text') {
+      showToast('/mc can only be used in a server text channel', 'error');
+      onError();
+      return Promise.resolve(true);
+    }
+    return db.ref(`servers/${currentServer}`).once('value').then((snap) => {
+      const server = snap.val() || {};
+      const memberCount = Object.keys(server.members || {}).length;
+      const textCount = Object.keys(server.channels || {}).length;
+      const voiceCount = Object.keys(server.voiceChannels || {}).length;
+      const name = server.name || 'Server';
+      return pushCommandMessage({
+        author: 'System',
+        text: `${name} stats: ${memberCount} member${memberCount === 1 ? '' : 's'} • ${textCount} text channel${textCount === 1 ? '' : 's'} • ${voiceCount} voice channel${voiceCount === 1 ? '' : 's'}`,
+        role: 'System',
+        roleColor: '#23a559'
+      });
+    }).catch((err) => {
+      showToast('Failed to load server stats: ' + err.message, 'error');
+      onError();
+      return true;
+    });
+  }
+
+  if (parsed.command === 'help') {
+    const lines = SLASH_COMMANDS.map(cmd => `${cmd.usage} - ${cmd.description}`).join('\n');
+    return pushCommandMessage({
+      author: 'System',
+      text: `Available commands:\n${lines}`,
+      role: 'System',
+      roleColor: '#23a559'
+    });
+  }
+
+  showToast(`Unknown command: /${parsed.command}`, 'error');
+  onError();
+  return Promise.resolve(true);
 }
 
 function getReplyComposerElements() {
@@ -338,6 +621,7 @@ function extractReplySnippetFromMessage(msg) {
   if (!msg) return '';
   if (msg.poll?.question) return `[Poll] ${msg.poll.question}`;
   if (msg.image) return '[Image]';
+  if (msg.voice) return '[Voice message]';
   if (msg.text) return String(msg.text).trim().slice(0, 120);
   return '[Message]';
 }
@@ -1054,6 +1338,19 @@ function notifyMentions() {
   return;
 }
 
+function isMessageMentioningCurrentUser(msg) {
+  if (!msg || !msg.text || !currentUser) return false;
+  if (msg.uid === currentUser.uid) return false;
+
+  const rawText = String(msg.text || '');
+  const lowerText = rawText.toLowerCase();
+  if (/@(everyone|here)\b/i.test(rawText)) return true;
+
+  const myUsername = String(userProfile.username || '').trim().toLowerCase();
+  if (!myUsername) return false;
+  return lowerText.includes(`@${myUsername}`);
+}
+
 function queueMentionNotifications(messageKey, text) {
   if (!currentUser || !currentServer || currentChannelType !== 'text') return Promise.resolve();
   if (!messageKey || !text) return Promise.resolve();
@@ -1095,7 +1392,6 @@ function queueMentionNotifications(messageKey, text) {
         messageId: messageKey
       };
     });
-
     return db.ref().update(updates);
   }).catch((error) => {
     console.error('[Mentions] Failed to queue mention notifications:', error);
@@ -1104,6 +1400,16 @@ function queueMentionNotifications(messageKey, text) {
 
 function loadMessages() {
   if (!currentChannel) return;
+  if (voiceRecording) {
+    stopVoiceRecording(true);
+    showToast('Voice recording canceled (channel changed)', 'info');
+  }
+  const loadToken = ++activeMessageLoadToken;
+  const refPath = currentChannelType === 'dm'
+    ? `dms/${currentChannel}/messages`
+    : `servers/${currentServer}/channels_data/${currentChannel}/messages`;
+
+  messageDebugLog('load:start', { loadToken, refPath });
 
   elements.messagesArea.innerHTML = '';
   clearReplyComposer();
@@ -1115,35 +1421,71 @@ function loadMessages() {
   // Remove old listeners
   messageListeners.forEach(ref => ref.off());
   messageListeners = [];
+  messageDebugLog('load:old_listeners_cleared', { loadToken });
   if (typingListenerRef) {
     typingListenerRef.off();
     typingListenerRef = null;
   }
 
-  const messagesRef = currentChannelType === 'dm'
-    ? db.ref(`dms/${currentChannel}/messages`)
-    : db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`);
+  const messagesRef = db.ref(refPath);
   messageListeners.push(messagesRef);
   schedulePruneMessages(messagesRef);
+  messageDebugLog('load:listener_attached', { loadToken, refPath, refKey: messagesRef.toString() });
 
   // Listen for new messages
   messagesRef.on('child_added', (snap) => {
+    if (loadToken !== activeMessageLoadToken) {
+      messageDebugLog('listener:child_added_stale_ignored', { loadToken, activeLoadToken: activeMessageLoadToken, key: snap.key });
+      return;
+    }
     const msg = snap.val();
+    messageDebugLog('listener:child_added', {
+      loadToken,
+      key: snap.key,
+      hasMsg: !!msg,
+      msgUid: msg?.uid || null,
+      msgTs: msg?.timestamp || null,
+      hasText: typeof msg?.text === 'string',
+      hasImage: !!msg?.image,
+      hasPoll: !!msg?.poll,
+      hasVoice: !!msg?.voice
+    });
     if (msg) addMessage(snap.key, msg);
     schedulePruneMessages(messagesRef);
   });
 
   // Listen for deleted messages
   messagesRef.on('child_removed', (snap) => {
+    if (loadToken !== activeMessageLoadToken) {
+      messageDebugLog('listener:child_removed_stale_ignored', { loadToken, activeLoadToken: activeMessageLoadToken, key: snap.key });
+      return;
+    }
+    messageDebugLog('listener:child_removed', { loadToken, key: snap.key });
     const msgEl = document.getElementById(`msg-${snap.key}`);
     if (msgEl) msgEl.remove();
   });
 
   // Listen for edits/reactions
   messagesRef.on('child_changed', (snap) => {
+    if (loadToken !== activeMessageLoadToken) {
+      messageDebugLog('listener:child_changed_stale_ignored', { loadToken, activeLoadToken: activeMessageLoadToken, key: snap.key });
+      return;
+    }
     const msg = snap.val();
+    messageDebugLog('listener:child_changed', {
+      loadToken,
+      key: snap.key,
+      hasMsg: !!msg,
+      msgUid: msg?.uid || null,
+      hasText: typeof msg?.text === 'string',
+      hasPoll: !!msg?.poll,
+      hasVoice: !!msg?.voice
+    });
     if (!msg) return;
     const messageEl = document.getElementById(`msg-${snap.key}`);
+    if (messageEl) {
+      messageEl.classList.toggle('mention-highlight', isMessageMentioningCurrentUser(msg));
+    }
     if (messageEl && typeof msg.text === 'string') {
       const textEl = messageEl.querySelector('.message-text');
       if (textEl) {
@@ -1155,6 +1497,18 @@ function loadMessages() {
       const pollContainer = messageEl.querySelector('.message-poll-container');
       if (pollContainer) {
         pollContainer.innerHTML = buildPollMarkup(snap.key, msg.poll, msg.uid);
+      }
+    }
+    if (messageEl && msg.voice) {
+      const voiceContainer = messageEl.querySelector('.message-voice');
+      if (voiceContainer) {
+        const audioEl = voiceContainer.querySelector('.message-voice-audio');
+        const durationEl = voiceContainer.querySelector('.voice-time');
+        voiceContainer.dataset.voiceDurationMs = Number(msg.voiceDurationMs) || 0;
+        if (audioEl) audioEl.src = msg.voice;
+        if (durationEl) durationEl.textContent = formatVoiceDuration(msg.voiceDurationMs);
+        initVoiceMessagePlayer(voiceContainer);
+        updateVoicePlayerUi(voiceContainer);
       }
     }
     updateMessageReactions(snap.key, msg.reactions || {});
@@ -1207,14 +1561,17 @@ function loadMessages() {
 
 function addMessage(key, msg) {
   const div = document.createElement('div');
-  div.className = 'message';
+  const isMentionForViewer = isMessageMentioningCurrentUser(msg);
+  div.className = `message${isMentionForViewer ? ' mention-highlight' : ''}`;
   div.id = `msg-${key}`;
 
   const isSystem = msg.uid === 'system';
   const isAiResponse = !!msg.isAiResponse;
   const hasPoll = !!(msg.poll && msg.poll.question && msg.poll.options);
+  const hasVoice = !!msg.voice;
+  const hasImage = !!msg.image;
   const canDelete = !isSystem && (msg.uid === currentUser?.uid || (currentChannelType !== 'dm' && hasPermission('manage_messages')));
-  const canEdit = !isSystem && !isAiResponse && !hasPoll && msg.uid === currentUser?.uid;
+  const canEdit = !isSystem && !isAiResponse && !hasPoll && !hasImage && !hasVoice && typeof msg.text === 'string' && msg.uid === currentUser?.uid;
 
   const roleColor = msg.roleColor || (msg.role && rolesCache?.[msg.role]?.color) || '#5865f2';
   const roleBadge = msg.role && msg.role !== 'Member' && msg.role !== 'System'
@@ -1222,19 +1579,30 @@ function addMessage(key, msg) {
     : isSystem ? `<span class="role-badge" style="background:#23a559">SYSTEM</span>` : '';
 
   const displayAuthor = msg.author || 'Unknown';
-  const avatarMarkup = msg.avatar
-    ? `<img src="${msg.avatar}" style="width:100%;height:100%;object-fit:cover;">`
-    : (displayAuthor ? displayAuthor.charAt(0).toUpperCase() : '?');
+  const avatarMarkup = (displayAuthor ? displayAuthor.charAt(0).toUpperCase() : '?');
 
   let content = '';
   if (hasPoll) {
     content = `<div class="message-poll-container">${buildPollMarkup(key, msg.poll, msg.uid)}</div>`;
+  } else if (hasVoice) {
+    const safeVoice = escapeHtml(String(msg.voice || ''));
+    const voiceDuration = Number(msg.voiceDurationMs) || 0;
+    content = `
+      <div class="message-voice" data-voice-duration-ms="${voiceDuration}">
+        <audio class="message-voice-audio" preload="metadata" src="${safeVoice}"></audio>
+        <button class="voice-play-btn" type="button" title="Play/Pause"><i class="fa-solid fa-play"></i></button>
+        <div class="voice-bars" aria-hidden="true">${buildVoiceBarsMarkup(7)}</div>
+        <span class="voice-time">${formatVoiceDuration(voiceDuration)}</span>
+        <button class="voice-speed-btn" type="button" title="Playback speed">1x</button>
+        <button class="voice-volume-btn" type="button" title="Mute/Unmute"><i class="fa-solid fa-volume-high"></i></button>
+      </div>
+    `;
   } else if (msg.text) {
     content = `
       <div class="message-text">${formatMessageTextWithLinks(msg.text)}</div>
       <div class="message-embed-container" id="msg-embed-${key}"></div>
     `;
-  } else if (msg.image) {
+  } else if (hasImage) {
     content = `<img src="${msg.image}" class="message-image message-image-clickable">`;
   }
 
@@ -1265,6 +1633,15 @@ function addMessage(key, msg) {
 
   elements.messagesArea.appendChild(div);
   elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
+  messageDebugLog('render:addMessage', {
+    key,
+    author: msg?.author || null,
+    msgUid: msg?.uid || null,
+    hasText: !!msg?.text,
+    hasImage: !!msg?.image,
+    hasPoll: !!msg?.poll,
+    hasVoice: !!msg?.voice
+  });
 
   updateMessageReactions(key, msg.reactions || {});
   if (msg.text) {
@@ -1282,22 +1659,28 @@ function addMessage(key, msg) {
       });
     }
   }
+  if (msg.voice) {
+    const voiceContainer = div.querySelector('.message-voice');
+    if (voiceContainer) initVoiceMessagePlayer(voiceContainer);
+  }
   const replyBtn = div.querySelector('.reply-message-btn');
   if (replyBtn) {
     replyBtn.addEventListener('click', () => setReplyComposer(key, msg));
   }
 
-  if (!isSystem && !isAiResponse && msg.uid && (!msg.avatar || !msg.author)) {
+  if (!isSystem && !isAiResponse && !msg.commandMeta && msg.uid) {
     getMessageProfile(msg.uid).then(profile => {
       if (!profile) return;
       const authorEl = document.getElementById(`msg-author-${key}`);
-      if (authorEl && (!msg.author || msg.author === 'Unknown')) {
+      if (authorEl) {
         authorEl.textContent = profile.username;
       }
-      if (!msg.avatar && profile.avatar) {
-        const avatarEl = document.getElementById(`msg-avatar-${key}`);
-        if (avatarEl) {
+      const avatarEl = document.getElementById(`msg-avatar-${key}`);
+      if (avatarEl) {
+        if (profile.avatar) {
           avatarEl.innerHTML = `<img src="${profile.avatar}" style="width:100%;height:100%;object-fit:cover;">`;
+        } else {
+          avatarEl.textContent = (profile.username || '?').charAt(0).toUpperCase();
         }
       }
     });
@@ -1591,18 +1974,179 @@ function endPollMessage(messageKey) {
   });
 }
 
+function sendVoiceMessageData(audioDataUrl, durationMs, context, replyTo) {
+  const target = context || {
+    type: currentChannelType,
+    channel: currentChannel,
+    server: currentServer
+  };
+  if (!audioDataUrl || !target?.channel) return Promise.resolve();
+
+  const messageData = {
+    author: userProfile.username,
+    voice: audioDataUrl,
+    voiceDurationMs: Number(durationMs) || 0,
+    timestamp: Date.now(),
+    uid: currentUser.uid,
+    replyTo: replyTo || null
+  };
+
+  if (target.type === 'dm') {
+    const dmMessagesRef = db.ref(`dms/${target.channel}/messages`);
+    return dmMessagesRef.push(messageData).then(() => pruneMessages(dmMessagesRef));
+  }
+
+  if (target.type !== 'text' || !target.server) {
+    return Promise.reject(new Error('Voice messages can only be sent in text channels or DMs'));
+  }
+
+  const serverId = target.server;
+  const channelName = target.channel;
+
+  return db.ref(`servers/${serverId}/channels_data/${channelName}/permissions`).once('value').then(permSnap => {
+    const perms = permSnap.val() || {};
+    const sendRoles = perms.requiredRolesToSend || [];
+
+    if (sendRoles.length > 0 && !sendRoles.includes(userProfile.role) && !isServerOwner()) {
+      throw new Error('You do not have permission to send messages here');
+    }
+    if (sendRoles.length === 0 && !hasPermission('send_messages')) {
+      throw new Error('You do not have permission to send messages here');
+    }
+
+    return db.ref(`servers/${serverId}/channels_data/${channelName}/slowmodeSeconds`).once('value').then(slowSnap => {
+      const slowmodeSeconds = slowSnap.val() || 0;
+      if (slowmodeSeconds > 0 && !hasPermission('manage_channels')) {
+        return db.ref(`servers/${serverId}/channels_data/${channelName}/slowmodeState/${currentUser.uid}`).once('value').then(stateSnap => {
+          const lastSent = stateSnap.val() || 0;
+          const now = Date.now();
+          const remaining = (lastSent + (slowmodeSeconds * 1000)) - now;
+          if (remaining > 0) {
+            startSlowmodeCountdown(remaining);
+            throw new Error(`Slowmode active: wait ${Math.ceil(remaining / 1000)}s`);
+          }
+          return slowmodeSeconds;
+        });
+      }
+      return slowmodeSeconds;
+    }).then((slowmodeSeconds) => {
+      return db.ref(`servers/${serverId}/channels_data/${channelName}/messages`).push({
+        ...messageData,
+        role: userProfile.role
+      }).then(() => {
+        db.ref(`servers/${serverId}/channels_data/${channelName}/slowmodeState/${currentUser.uid}`).set(Date.now());
+        if (slowmodeSeconds > 0 && !hasPermission('manage_channels')) {
+          startSlowmodeCountdown(slowmodeSeconds * 1000);
+        }
+        return pruneMessages(db.ref(`servers/${serverId}/channels_data/${channelName}/messages`));
+      });
+    });
+  });
+}
+
+function toggleVoiceRecording() {
+  if (!currentChannel) {
+    showToast('Select a channel first', 'error');
+    return;
+  }
+  if (!(currentChannelType === 'text' || currentChannelType === 'dm')) {
+    showToast('Voice messages can only be sent in text channels or DMs', 'error');
+    return;
+  }
+
+  if (voiceRecording) {
+    stopVoiceRecording(false);
+    return;
+  }
+
+  const context = {
+    type: currentChannelType,
+    channel: currentChannel,
+    server: currentServer
+  };
+  const replyTo = getReplyPayload();
+
+  navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+    voiceRecordStream = stream;
+    voiceRecordChunks = [];
+    voiceDiscardOnStop = false;
+    voiceRecordStartAt = Date.now();
+
+    const recorder = new MediaRecorder(stream);
+    voiceRecorder = recorder;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        voiceRecordChunks.push(event.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const discard = voiceDiscardOnStop;
+      const durationMs = Date.now() - voiceRecordStartAt;
+      const mimeType = recorder.mimeType || 'audio/webm';
+      const blob = new Blob(voiceRecordChunks, { type: mimeType });
+      stopVoiceRecordingTracks();
+      resetVoiceRecordingState();
+      if (discard) return;
+      if (!blob || blob.size === 0) {
+        showToast('Voice message was empty', 'error');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const audioData = String(reader.result || '');
+        sendVoiceMessageData(audioData, durationMs, context, replyTo).then(() => {
+          clearReplyComposer();
+          showToast('Voice message sent', 'success');
+        }).catch((err) => {
+          showToast('Failed to send voice message: ' + (err?.message || 'Unknown error'), 'error');
+        });
+      };
+      reader.onerror = () => {
+        showToast('Failed to process voice recording', 'error');
+      };
+      reader.readAsDataURL(blob);
+    };
+
+    recorder.start();
+    voiceRecording = true;
+    updateVoiceRecordButton();
+    showToast('Recording... click Voice again to send', 'info');
+    voiceRecordTimer = setTimeout(() => {
+      if (voiceRecording) {
+        showToast('Max voice message length reached (2m)', 'info');
+        stopVoiceRecording(false);
+      }
+    }, 120000);
+  }).catch((err) => {
+    showToast('Microphone permission denied: ' + err.message, 'error');
+    stopVoiceRecordingTracks();
+    resetVoiceRecordingState();
+  });
+}
+
 function sendMessage() {
   if (!currentChannel) return;
 
   const text = elements.messageInput.value.trim();
   if (!text) return;
+  messageDebugLog('send:start', {
+    textLength: text.length,
+    startsWithSlash: text.startsWith('/'),
+    replyingTo: pendingReplyMessage?.messageId || null
+  });
   const replyTo = getReplyPayload();
 
   if (currentChannelType === 'dm') {
     const dmMessagesRef = db.ref(`dms/${currentChannel}/messages`);
+    messageDebugLog('send:dm_path', { refPath: `dms/${currentChannel}/messages` });
     if (text.startsWith('/')) {
+      messageDebugLog('send:dm_slash_command', { command: text.split(' ')[0] });
       runSlashCommand(text, dmMessagesRef, {
         onHandled: () => {
+          messageDebugLog('send:dm_slash_success');
           elements.messageInput.value = '';
           clearReplyComposer();
           elements.charCount.textContent = '0/2000';
@@ -1621,8 +2165,15 @@ function sendMessage() {
       replyTo
     };
 
-    dmMessagesRef.push(messageData)
+    const messageRef = dmMessagesRef.push();
+    messageDebugLog('send:dm_push_prepare', {
+      key: messageRef.key,
+      msgTs: messageData.timestamp,
+      textPreview: String(text).slice(0, 40)
+    });
+    messageRef.set(messageData)
       .then(() => {
+        messageDebugLog('send:dm_push_success', { key: messageRef.key });
         elements.messageInput.value = '';
         clearReplyComposer();
         elements.charCount.textContent = '0/2000';
@@ -1630,6 +2181,7 @@ function sendMessage() {
         pruneMessages(dmMessagesRef);
       })
       .catch(err => {
+        messageDebugLog('send:dm_push_error', { error: err?.message || String(err) });
         showToast('Failed to send message: ' + err.message, 'error');
       });
     return;
@@ -1638,6 +2190,7 @@ function sendMessage() {
   if (!currentServer || currentChannelType !== 'text') return;
 
   db.ref(`servers/${currentServer}/channels_data/${currentChannel}/permissions`).once('value').then(permSnap => {
+    messageDebugLog('send:server_perm_loaded', { hasPermData: !!permSnap.val() });
     const perms = permSnap.val() || {};
     const sendRoles = perms.requiredRolesToSend || [];
     
@@ -1653,6 +2206,7 @@ function sendMessage() {
     // Slowmode check
     db.ref(`servers/${currentServer}/channels_data/${currentChannel}/slowmodeSeconds`).once('value').then(slowSnap => {
       const slowmodeSeconds = slowSnap.val() || 0;
+      messageDebugLog('send:server_slowmode_loaded', { slowmodeSeconds });
       if (slowmodeSeconds > 0 && !hasPermission('manage_channels')) {
         db.ref(`servers/${currentServer}/channels_data/${currentChannel}/slowmodeState/${currentUser.uid}`).once('value').then(stateSnap => {
           const lastSent = stateSnap.val() || 0;
@@ -1671,9 +2225,12 @@ function sendMessage() {
 
     function doSendMessage(slowmodeSeconds) {
       const channelMessagesRef = db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages`);
+      messageDebugLog('send:server_path', { refPath: `servers/${currentServer}/channels_data/${currentChannel}/messages` });
       if (text.startsWith('/')) {
+        messageDebugLog('send:server_slash_command', { command: text.split(' ')[0] });
         runSlashCommand(text, channelMessagesRef, {
           onHandled: () => {
+            messageDebugLog('send:server_slash_success');
             elements.messageInput.value = '';
             clearReplyComposer();
             elements.charCount.textContent = '0/2000';
@@ -1694,6 +2251,7 @@ function sendMessage() {
       // Get role color
       db.ref(`servers/${currentServer}/roles/${userProfile.role}`).once('value').then(roleSnap => {
       const roleData = roleSnap.val() || {};
+      messageDebugLog('send:server_role_loaded', { role: userProfile.role, hasRoleData: !!roleData });
       
       const messageData = {
         author: userProfile.username,
@@ -1705,8 +2263,14 @@ function sendMessage() {
       };
 
       const messageRef = channelMessagesRef.push();
+      messageDebugLog('send:server_push_prepare', {
+        key: messageRef.key,
+        msgTs: messageData.timestamp,
+        textPreview: String(text).slice(0, 40)
+      });
       messageRef.set(messageData)
         .then(() => {
+          messageDebugLog('send:server_push_success', { key: messageRef.key });
           elements.messageInput.value = '';
           clearReplyComposer();
           elements.charCount.textContent = '0/2000';
@@ -1726,6 +2290,7 @@ function sendMessage() {
           pruneMessages(channelMessagesRef);
         })
         .catch(err => {
+          messageDebugLog('send:server_push_error', { error: err?.message || String(err) });
           showToast('Failed to send message: ' + err.message, 'error');
         });
       });

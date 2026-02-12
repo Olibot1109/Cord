@@ -1,0 +1,119 @@
+/* Voice Panel */
+.voice-panel {
+  background: #2b2d31;
+  padding: 16px;
+  border-bottom: 1px solid #1e1f22;
+  display: none;
+}
+
+.voice-panel.active {
+  display: block;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.voice-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  color: #949ba4;
+  font-size: 14px;
+}
+
+.voice-channel-name {
+  color: #23a559;
+  font-weight: 600;
+}
+
+.voice-users-display {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.voice-participant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.voice-participant-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+  position: relative;
+  border: 3px solid #23a559;
+}
+
+.voice-participant-avatar.speaking {
+  box-shadow: 0 0 0 4px rgba(35, 165, 89, 0.3);
+}
+
+.voice-participant-avatar img,
+.voice-participant-avatar video {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.voice-participant-name {
+  font-size: 12px;
+  color: #dbdee1;
+  font-weight: 500;
+}
+
+.voice-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.voice-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  background: #313338;
+  color: #dbdee1;
+}
+
+.voice-btn:hover {
+  background: #35363c;
+}
+
+.voice-btn.active {
+  background: #ed4245;
+  color: white;
+}
+
+.voice-btn.disconnect {
+  background: #f23f43;
+  color: white;
+}
+
+.voice-btn.disconnect:hover {
+  background: #d01b20;
+}
+

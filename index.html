@@ -12,7 +12,10 @@
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/sidebar.css">
 <link rel="stylesheet" href="css/voice.css">
-<link rel="stylesheet" href="css/chat.css">
+<link rel="stylesheet" href="css/chat-layout.css">
+<link rel="stylesheet" href="css/chat-voice-panel.css">
+<link rel="stylesheet" href="css/chat-messages.css">
+<link rel="stylesheet" href="css/chat-input.css">
 <link rel="stylesheet" href="css/member.css">
 <link rel="stylesheet" href="css/modals.css">
 <link rel="stylesheet" href="css/extras.css">
@@ -26,7 +29,9 @@
 <script src="js/permissions.js" defer></script>
 <script src="js/ui.js" defer></script>
 <script src="js/voice.js" defer></script>
+<script src="js/startup-updates.js" defer></script>
 <script async src="js/google.js"></script>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 
@@ -144,13 +149,13 @@
     </div>
     <div class="voice-video-grid" id="voiceVideoGrid"></div>
       <div class="voice-controls">
+        <button class="voice-btn" id="voicePanelToggleBtn" onclick="toggleVoicePanelMinimize()" title="Expand"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
         <button class="voice-btn" id="voiceVideoBtn" onclick="toggleCamera()" title="Camera"><i class="fa-solid fa-video"></i></button>
         <button class="voice-btn" id="voiceMuteBtn" onclick="toggleVoiceMute()" title="Mute"><i class="fa-solid fa-microphone"></i></button>
         <button class="voice-btn" id="voiceDeafenBtn" onclick="toggleDeafen()" title="Deafen"><i class="fa-solid fa-headphones"></i></button>
         <button class="voice-btn disconnect" onclick="disconnectVoice()" title="Disconnect"><i class="fa-solid fa-phone-slash"></i></button>
       </div>
   </div>
-
   <div class="messages-area" id="messagesArea">
     <div class="welcome-message" id="welcomeMessage">
       <h2>Welcome to <span id="welcomeServerName">Schoolcord</span></h2>
@@ -183,6 +188,7 @@
       <div class="input-actions">
         <span class="char-count" id="charCount">0/2000</span>
         <button class="input-btn" onclick="showModal('createPoll')" id="pollBtn"><i class="fa-solid fa-square-poll-vertical"></i> Poll</button>
+        <button class="input-btn" onclick="toggleVoiceRecording()" id="voiceRecordBtn"><i class="fa-solid fa-microphone"></i> Voice</button>
         <button class="input-btn" onclick="sendMessage()" id="sendBtn">Send Message</button>
         <input type="file" id="imageInput" accept="image/*" style="display:none;">
       </div>
@@ -202,11 +208,19 @@
   <div class="dm-call-window">
     <div class="dm-call-header">
       <div class="dm-call-title" id="dmCallTitle">Video Call</div>
-      <button class="action-btn delete" onclick="endDmCall()" title="End Call"><i class="fa-solid fa-phone-slash"></i></button>
+      <div style="display:flex;gap:8px;">
+        <button class="action-btn" onclick="toggleDmCallMinimize()" title="Minimize"><i class="fa-solid fa-window-minimize"></i></button>
+        <button class="action-btn delete" onclick="endDmCall()" title="End Call"><i class="fa-solid fa-phone-slash"></i></button>
+      </div>
     </div>
     <div class="dm-call-videos">
       <video id="dmRemoteVideo" autoplay playsinline></video>
       <video id="dmLocalVideo" autoplay muted playsinline></video>
+    </div>
+    <div class="dm-call-controls">
+      <button class="voice-btn" id="dmCallMicBtn" onclick="toggleDmCallMute()" title="Toggle Microphone"><i class="fa-solid fa-microphone"></i></button>
+      <button class="voice-btn" id="dmCallCamBtn" onclick="toggleDmCallCamera()" title="Toggle Camera"><i class="fa-solid fa-video"></i></button>
+      <button class="voice-btn" id="dmCallAudioBtn" onclick="toggleDmCallAudio()" title="Toggle Incoming Audio"><i class="fa-solid fa-volume-high"></i></button>
     </div>
   </div>
 </div>
@@ -218,6 +232,14 @@
       <button class="input-btn danger" onclick="declineDmCall()">Decline</button>
     </div>
   </div>
+</div>
+<div class="dm-call-mini-dock" id="dmCallMiniDock" style="display:none;">
+  <div class="dm-call-mini-handle" id="dmCallMiniHandle" title="Drag call window"><i class="fa-solid fa-grip-lines"></i></div>
+  <button class="dm-call-mini-main" onclick="restoreDmCall()">
+    <i class="fa-solid fa-video"></i>
+    <span id="dmCallMiniTitle">DM call</span>
+  </button>
+  <button class="voice-btn disconnect" onclick="endDmCall()" title="End Call"><i class="fa-solid fa-phone-slash"></i></button>
 </div>
 
 <!-- Modals -->
@@ -299,7 +321,7 @@
     </div>
     <div class="modal-footer">
       <button class="modal-btn secondary" onclick="backFromCreateServer()">Back</button>
-      <button class="modal-btn primary" onclick="createServer()">Create Server</button>
+      <button class="modal-btn primary" id="createServerBtn" onclick="createServer()">Create Server</button>
     </div>
   </div>
 </div>
@@ -429,6 +451,29 @@
     <div class="modal-footer">
       <button class="modal-btn secondary" onclick="hideModal('createPoll')">Cancel</button>
       <button class="modal-btn primary" onclick="createPollMessage()">Send Poll</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="startupUpdatesModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">New Stuff Added</div>
+      <div class="modal-subtitle">Recent updates from this build</div>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;flex-direction:column;gap:10px;color:#dcddde;font-size:14px;line-height:1.4;">
+        <div><strong>Messaging:</strong> reply to messages, mentions + unread mention badges, slash command UI, and command autocomplete.</div>
+        <div><strong>Commands:</strong> <code>/ai</code>, <code>/ping</code>, <code>/me</code>, <code>/shrug</code>, <code>/roll</code>, <code>/mc</code>, <code>/help</code>.</div>
+        <div><strong>Embeds:</strong> URL embeds, server invite embeds with join button + server info, and image click-to-view.</div>
+        <div><strong>Polls:</strong> create polls, end polls, and view exactly who voted per option.</div>
+        <div><strong>Voice:</strong> voice messages with custom player UI (play/pause, bars, speed, volume), plus DM/VC call UI improvements.</div>
+        <div><strong>Server/Data:</strong> duplicate/broken server cleanup, member-list-based server membership checks, and profile status/last-seen handling improvements.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="dismissStartupUpdates(false)">Close</button>
+      <button class="modal-btn primary" onclick="dismissStartupUpdates(true)">Don't Show Again</button>
     </div>
   </div>
 </div>

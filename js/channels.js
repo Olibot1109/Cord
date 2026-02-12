@@ -175,7 +175,6 @@ function switchChannel(channelName, type) {
     lastChannelsByServer[currentServer] = { name: channelName, type };
     saveCookies();
   }
-
   elements.currentChannelName.textContent = channelName;
   elements.headerIcon.innerHTML = type === 'voice' ? '<i class="fa-solid fa-volume-high"></i>' : '<i class="fa-solid fa-hashtag"></i>';
   elements.messageInput.placeholder = `Message #${channelName}`;

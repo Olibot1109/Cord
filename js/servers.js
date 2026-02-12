@@ -1,6 +1,58 @@
 let mentionListenerRef = null;
 let mentionUnreadByServer = {};
 let mentionUnreadByChannel = {};
+let createServerInProgress = false;
+let dmUnreadByUid = {};
+let dmUnreadListenerUnsubs = {};
+let dmFriendsListenerRef = null;
+let dmUnreadHeartbeatTimer = null;
+let dmUnreadVisibilityBound = false;
+const dmPingProfileCache = {};
+const dmPingProfilePromises = {};
+const serverMembershipWatchers = {};
+
+function unwatchServerMembership(serverId) {
+  const watcher = serverMembershipWatchers[serverId];
+  if (!watcher) return;
+  watcher.ref.off('value', watcher.handler);
+  delete serverMembershipWatchers[serverId];
+}
+
+function handleServerMembershipRemoved(serverId) {
+  if (!serverId) return;
+  const wasActive = currentServer === serverId;
+  if (userServers.includes(serverId)) {
+    userServers = userServers.filter(s => s !== serverId);
+    saveCookies();
+    loadUserServers();
+  }
+  unwatchServerMembership(serverId);
+  if (wasActive) {
+    goHome();
+    showToast('You were removed from that server', 'info');
+  }
+}
+
+function ensureServerMembershipWatcher(serverId) {
+  if (!currentUser || !serverId || serverMembershipWatchers[serverId]) return;
+  const ref = db.ref(`servers/${serverId}/members/${currentUser.uid}`);
+  const handler = (snapshot) => {
+    if (snapshot.exists()) return;
+    handleServerMembershipRemoved(serverId);
+  };
+  ref.on('value', handler);
+  serverMembershipWatchers[serverId] = { ref, handler };
+}
+
+function syncServerMembershipWatchers() {
+  const activeIds = new Set(userServers || []);
+  Object.keys(serverMembershipWatchers).forEach((serverId) => {
+    if (!activeIds.has(serverId)) {
+      unwatchServerMembership(serverId);
+    }
+  });
+  activeIds.forEach((serverId) => ensureServerMembershipWatcher(serverId));
+}
 
 function getMentionChannelKey(serverId, channelName) {
   return `${serverId}::${channelName}`;
@@ -81,6 +133,14 @@ function startMentionWatcher() {
     mentionUnreadByServer = nextServerCounts;
     mentionUnreadByChannel = nextChannelCounts;
     refreshMentionBadges();
+
+    // Auto-read mentions for the channel currently open in UI.
+    if (currentChannelType === 'text' && currentServer && currentChannel) {
+      const currentKey = getMentionChannelKey(currentServer, currentChannel);
+      if ((nextChannelCounts[currentKey] || 0) > 0) {
+        markChannelMentionsRead(currentServer, currentChannel);
+      }
+    }
   });
 }
 
@@ -102,6 +162,321 @@ function markChannelMentionsRead(serverId, channelName) {
   });
 }
 
+function setDmRead(dmId, timestamp = Date.now()) {
+  return setDmReadState(dmId, timestamp, '');
+}
+
+function setDmReadState(dmId, timestamp = Date.now(), key = '') {
+  if (!currentUser || !dmId) return Promise.resolve();
+  return db.ref(`dmReads/${currentUser.uid}/${dmId}`).set({
+    timestamp: Number(timestamp) || 0,
+    key: String(key || '')
+  }).catch(() => {});
+}
+
+function parseDmReadState(raw) {
+  if (raw && typeof raw === 'object') {
+    return {
+      timestamp: Number(raw.timestamp) || 0,
+      key: String(raw.key || '')
+    };
+  }
+  return {
+    timestamp: Number(raw) || 0,
+    key: ''
+  };
+}
+
+function isMessageUnreadForReadState(messageTs, messageKey, readState) {
+  const ts = Number(messageTs) || 0;
+  const key = String(messageKey || '');
+  const readTs = Number(readState?.timestamp) || 0;
+  const readKey = String(readState?.key || '');
+  if (key && readKey) return key > readKey;
+  if (ts > readTs) return true;
+  if (ts < readTs) return false;
+  if (!key || !readKey) return false;
+  return key > readKey;
+}
+
+function ensureDmReadStateKey(dmId, friendUid, messages, readState) {
+  if (!dmId || !friendUid) return Promise.resolve(readState);
+  const currentKey = String(readState?.key || '');
+  if (currentKey) return Promise.resolve(readState);
+
+  const readTs = Number(readState?.timestamp) || 0;
+  if (readTs <= 0) return Promise.resolve(readState);
+
+  let derivedKey = '';
+  Object.entries(messages || {}).forEach(([msgKey, msg]) => {
+    if (!msg || msg.uid !== friendUid) return;
+    const ts = Number(msg.timestamp) || 0;
+    if (ts <= readTs && String(msgKey) > derivedKey) {
+      derivedKey = String(msgKey);
+    }
+  });
+
+  if (!derivedKey) return Promise.resolve(readState);
+  return setDmReadState(dmId, readTs, derivedKey).then(() => ({
+    timestamp: readTs,
+    key: derivedKey
+  }));
+}
+
+function markDmReadToLatest(dmId) {
+  if (!currentUser || !dmId) return Promise.resolve();
+  const peerUid = dmId.split('_').find(uid => uid !== currentUser.uid) || null;
+  return db.ref(`dms/${dmId}/messages`).once('value').then((snapshot) => {
+    const messages = snapshot.val() || {};
+    let latestTs = 0;
+    let latestKey = '';
+    Object.entries(messages).forEach(([msgKey, msg]) => {
+      const ts = Number(msg?.timestamp) || 0;
+      if (peerUid && msg?.uid !== peerUid) return;
+      if (String(msgKey) > latestKey || (!latestKey && (ts > latestTs || (ts === latestTs && String(msgKey) > latestKey)))) {
+        latestTs = ts;
+        latestKey = String(msgKey);
+      }
+    });
+    return setDmReadState(dmId, latestTs || 0, latestKey);
+  }).catch(() => {});
+}
+
+function clearDmUnreadListeners() {
+  Object.values(dmUnreadListenerUnsubs).forEach(unsub => {
+    if (typeof unsub === 'function') unsub();
+  });
+  dmUnreadListenerUnsubs = {};
+}
+
+function getDmPingProfile(uid) {
+  if (!uid) return Promise.resolve(null);
+  if (dmPingProfileCache[uid]) return Promise.resolve(dmPingProfileCache[uid]);
+  if (dmPingProfilePromises[uid]) return dmPingProfilePromises[uid];
+
+  const promise = db.ref(`profiles/${uid}`).once('value').then((snap) => {
+    const profile = snap.val() || {};
+    const data = {
+      username: profile.username || 'Unknown',
+      avatar: profile.avatar || null
+    };
+    dmPingProfileCache[uid] = data;
+    delete dmPingProfilePromises[uid];
+    return data;
+  }).catch(() => {
+    delete dmPingProfilePromises[uid];
+    return null;
+  });
+
+  dmPingProfilePromises[uid] = promise;
+  return promise;
+}
+
+function renderDmServerRail() {
+  if (!elements.serverList) return;
+  elements.serverList.querySelectorAll('.dm-ping-icon').forEach(el => el.remove());
+
+  const divider = elements.serverList.querySelector('.server-divider');
+  if (!divider) return;
+
+  const unreadEntries = Object.entries(dmUnreadByUid)
+    .map(([uid, count]) => [uid, Number(count) || 0])
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const parent = divider.parentElement;
+  if (!parent) return;
+  unreadEntries.slice(0, 8).forEach(([uid, count]) => {
+    const icon = document.createElement('div');
+    const isActiveDm = currentChannelType === 'dm' && currentDmUser && currentDmUser.uid === uid;
+    icon.className = `server-icon dm-ping-icon${isActiveDm ? ' active' : ''}`;
+    icon.setAttribute('data-dm-ping-uid', uid);
+    icon.title = `${count} unread DM${count === 1 ? '' : 's'}`;
+    icon.innerHTML = `
+      <span class="dm-ping-fallback">?</span>
+      <span class="dm-ping-badge">${formatMentionCount(count)}</span>
+    `;
+    icon.onclick = () => openDm(uid, { username: dmPingProfileCache[uid]?.username || 'User' });
+    parent.insertBefore(icon, divider);
+
+    getDmPingProfile(uid).then((profile) => {
+      const target = elements.serverList.querySelector(`.dm-ping-icon[data-dm-ping-uid="${uid}"]`);
+      if (!target || !profile) return;
+      const fallback = target.querySelector('.dm-ping-fallback');
+      if (profile.avatar) {
+        target.innerHTML = `
+          <img src="${profile.avatar}" alt="">
+          <span class="dm-ping-badge">${formatMentionCount(Number(dmUnreadByUid[uid]) || 0)}</span>
+        `;
+      } else if (fallback) {
+        fallback.textContent = (profile.username || 'U').charAt(0).toUpperCase();
+      }
+      target.title = `${profile.username || 'User'} • ${Number(dmUnreadByUid[uid]) || 0} unread`;
+    });
+  });
+}
+
+function renderDmUnreadForUser(friendUid) {
+  if (!elements.directMessagesList) return;
+  const row = elements.directMessagesList.querySelector(`[data-dm-uid="${friendUid}"]`);
+  if (!row) return;
+  let badge = row.querySelector('.dm-unread-badge');
+  const count = Number(dmUnreadByUid[friendUid]) || 0;
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'dm-unread-badge';
+      badge.style.cssText = 'min-width:18px;height:18px;border-radius:999px;background:#f23f43;color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;padding:0 6px;';
+      const holder = row.querySelector(`[data-dm-meta="${friendUid}"]`);
+      if (holder) holder.prepend(badge);
+    }
+    badge.textContent = formatMentionCount(count);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function startDmUnreadWatcher(friendUid) {
+  if (!currentUser || !friendUid) return;
+  const dmId = getDmId(currentUser.uid, friendUid);
+  if (!dmId || dmUnreadListenerUnsubs[friendUid]) return;
+
+  const messagesRef = db.ref(`dms/${dmId}/messages`);
+  const handler = (snapshot) => {
+    const messages = snapshot.val() || {};
+    db.ref(`dmReads/${currentUser.uid}/${dmId}`).once('value').then(readSnap => {
+      const parsedReadState = parseDmReadState(readSnap.val());
+      return ensureDmReadStateKey(dmId, friendUid, messages, parsedReadState).then((readState) => ({ readState }));
+    }).then(({ readState }) => {
+      let unread = 0;
+      let latestIncomingTs = Number(readState.timestamp) || 0;
+      let latestIncomingKey = String(readState.key || '');
+      Object.entries(messages).forEach(([msgKey, msg]) => {
+        const ts = Number(msg?.timestamp) || 0;
+        const key = String(msgKey || '');
+        if (msg && msg.uid === friendUid && (key > latestIncomingKey || (!latestIncomingKey && (ts > latestIncomingTs || (ts === latestIncomingTs && key > latestIncomingKey))))) {
+          latestIncomingTs = ts;
+          latestIncomingKey = key;
+        }
+        if (msg && msg.uid !== currentUser.uid && isMessageUnreadForReadState(ts, key, readState)) unread += 1;
+      });
+
+      const isOpenDm = currentChannelType === 'dm' && currentChannel === dmId;
+      if (isOpenDm) {
+        dmUnreadByUid[friendUid] = 0;
+        if (latestIncomingTs > readState.timestamp || (latestIncomingTs === readState.timestamp && latestIncomingKey > readState.key)) {
+          setDmReadState(dmId, latestIncomingTs, latestIncomingKey);
+        }
+      } else {
+        dmUnreadByUid[friendUid] = unread;
+      }
+      renderDmUnreadForUser(friendUid);
+      renderDmServerRail();
+    }).catch(() => {});
+  };
+
+  messagesRef.on('value', handler);
+  dmUnreadListenerUnsubs[friendUid] = () => messagesRef.off('value', handler);
+}
+
+function refreshAllDmUnreadNow() {
+  if (!currentUser) return Promise.resolve();
+  return db.ref(`friends/${currentUser.uid}`).once('value').then((snapshot) => {
+    const friends = snapshot.val() || {};
+    const friendUids = Object.keys(friends);
+    const tasks = friendUids.map((friendUid) => {
+      const dmId = getDmId(currentUser.uid, friendUid);
+      if (!dmId) return Promise.resolve();
+      return Promise.all([
+        db.ref(`dms/${dmId}/messages`).once('value'),
+        db.ref(`dmReads/${currentUser.uid}/${dmId}`).once('value')
+      ]).then(([messagesSnap, readSnap]) => {
+        const messages = messagesSnap.val() || {};
+        const parsedReadState = parseDmReadState(readSnap.val());
+        return ensureDmReadStateKey(dmId, friendUid, messages, parsedReadState).then((readState) => {
+          let unread = 0;
+          let latestIncomingTs = Number(readState.timestamp) || 0;
+          let latestIncomingKey = String(readState.key || '');
+          Object.entries(messages).forEach(([msgKey, msg]) => {
+            const ts = Number(msg?.timestamp) || 0;
+            const key = String(msgKey || '');
+            if (msg && msg.uid === friendUid && (key > latestIncomingKey || (!latestIncomingKey && (ts > latestIncomingTs || (ts === latestIncomingTs && key > latestIncomingKey))))) {
+              latestIncomingTs = ts;
+              latestIncomingKey = key;
+            }
+            if (msg && msg.uid !== currentUser.uid && isMessageUnreadForReadState(ts, key, readState)) unread += 1;
+          });
+          const isOpenDm = currentChannelType === 'dm' && currentChannel === dmId;
+          if (isOpenDm) {
+            dmUnreadByUid[friendUid] = 0;
+            if (latestIncomingTs > readState.timestamp || (latestIncomingTs === readState.timestamp && latestIncomingKey > readState.key)) {
+              return setDmReadState(dmId, latestIncomingTs, latestIncomingKey);
+            }
+          } else {
+            dmUnreadByUid[friendUid] = unread;
+          }
+        });
+      }).catch(() => {});
+    });
+    return Promise.all(tasks).then(() => {
+      renderDmServerRail();
+    });
+  }).catch(() => {});
+}
+
+function startGlobalDmUnreadWatcher() {
+  if (!currentUser) return;
+  if (dmFriendsListenerRef) return;
+
+  refreshAllDmUnreadNow();
+
+  if (!dmUnreadHeartbeatTimer) {
+    dmUnreadHeartbeatTimer = setInterval(() => {
+      refreshAllDmUnreadNow();
+    }, 2500);
+  }
+  if (!dmUnreadVisibilityBound) {
+    dmUnreadVisibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        refreshAllDmUnreadNow();
+      }
+    });
+    window.addEventListener('focus', () => {
+      refreshAllDmUnreadNow();
+    });
+  }
+
+  dmFriendsListenerRef = db.ref(`friends/${currentUser.uid}`);
+  dmFriendsListenerRef.on('value', (snapshot) => {
+    const friends = snapshot.val() || {};
+    const friendUids = Object.keys(friends);
+    const activeFriendSet = new Set(friendUids);
+
+    Object.keys(dmUnreadListenerUnsubs).forEach(uid => {
+      if (activeFriendSet.has(uid)) return;
+      const unsub = dmUnreadListenerUnsubs[uid];
+      if (typeof unsub === 'function') unsub();
+      delete dmUnreadListenerUnsubs[uid];
+      delete dmUnreadByUid[uid];
+    });
+
+    friendUids.forEach(uid => {
+      startDmUnreadWatcher(uid);
+    });
+
+    renderDmServerRail();
+    refreshAllDmUnreadNow();
+  });
+}
+
+function syncUnreadOnLeavingDm(dmId) {
+  if (!dmId) return;
+  markDmReadToLatest(dmId).then(() => {
+    refreshAllDmUnreadNow();
+  });
+}
+
 // Server Management
 function loadUserServers() {
   elements.serverList.innerHTML = `
@@ -111,6 +486,7 @@ function loadUserServers() {
   `;
 
   const serverIds = [...userServers];
+  syncServerMembershipWatchers();
 
   if (userServers.length === 0) {
     elements.serverList.innerHTML += '<div style="color:#949ba4;text-align:center;padding:20px;font-size:11px;">No servers</div>';
@@ -121,6 +497,7 @@ function loadUserServers() {
         if (!snap.exists()) {
           // Server deleted: remove from user list and go home if active
           userServers = userServers.filter(s => s !== serverId);
+          unwatchServerMembership(serverId);
           saveCookies();
           loadUserServers();
           if (currentServer === serverId) {
@@ -161,9 +538,15 @@ function loadUserServers() {
     refreshPresenceForServers();
   }
   refreshMentionBadges();
+  renderDmServerRail();
 }
 
 function goDiscovery() {
+  if (currentChannelType === 'dm' && currentChannel) {
+    syncUnreadOnLeavingDm(currentChannel);
+  } else {
+    refreshAllDmUnreadNow();
+  }
   currentServer = null;
   currentChannel = null;
   currentChannelType = 'dm';
@@ -232,6 +615,11 @@ function backToServerChooser() {
 
 function selectServer(serverId) {
   if (!serverId) return;
+  if (currentChannelType === 'dm' && currentChannel) {
+    syncUnreadOnLeavingDm(currentChannel);
+  } else {
+    refreshAllDmUnreadNow();
+  }
 
   currentServer = serverId;
   currentChannel = null;
@@ -278,26 +666,22 @@ function selectServer(serverId) {
       // Ensure member exists
       db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value').then(memberSnap => {
         if (!memberSnap.exists()) {
-          db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
-            username: userProfile.username,
-            role: 'Member',
-            joinedAt: Date.now()
-          });
+          handleServerMembershipRemoved(serverId);
+          return;
         } else {
           const memberData = memberSnap.val();
           userProfile.role = memberData.role || 'Member';
           updateUserDisplay();
+          loadChannels();
+          if (elements.memberList.style.display !== 'none') {
+            loadMemberList();
+          }
         }
       });
-
-      loadChannels();
-      
-      if (elements.memberList.style.display !== 'none') {
-        loadMemberList();
-      }
     } else {
       // Clean up missing servers from local list
       userServers = userServers.filter(s => s !== serverId);
+      unwatchServerMembership(serverId);
       saveCookies();
       loadUserServers();
       if (userServers.length === 0) goHome();
@@ -306,6 +690,11 @@ function selectServer(serverId) {
 }
 
 function goHome() {
+  if (currentChannelType === 'dm' && currentChannel) {
+    syncUnreadOnLeavingDm(currentChannel);
+  } else {
+    refreshAllDmUnreadNow();
+  }
   if (isOnboarding && userServers.length === 0) {
     showModal('welcome');
     showToast('Finish setup first', 'error');
@@ -388,18 +777,37 @@ function loadDirectMessages() {
     elements.directMessagesList.innerHTML = '';
 
     const friendUids = Object.keys(friends);
+    const activeFriendSet = new Set(friendUids);
+    Object.keys(dmUnreadListenerUnsubs).forEach(uid => {
+      if (activeFriendSet.has(uid)) return;
+      const unsub = dmUnreadListenerUnsubs[uid];
+      if (typeof unsub === 'function') unsub();
+      delete dmUnreadListenerUnsubs[uid];
+      delete dmUnreadByUid[uid];
+    });
     if (friendUids.length === 0) {
       elements.directMessagesList.innerHTML = '<div style="color:#949ba4;padding:8px 12px;font-size:12px;">No friends yet</div>';
+      clearDmUnreadListeners();
+      dmUnreadByUid = {};
+      renderDmServerRail();
       return;
     }
 
     friendUids.forEach(uid => {
       const div = document.createElement('div');
       div.className = 'channel-item' + (currentDmUser && currentDmUser.uid === uid ? ' active' : '');
+      div.setAttribute('data-dm-uid', uid);
+      const unreadCount = Number(dmUnreadByUid[uid]) || 0;
+      const unreadBadge = unreadCount > 0
+        ? `<span class="dm-unread-badge" style="min-width:18px;height:18px;border-radius:999px;background:#f23f43;color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;padding:0 6px;">${formatMentionCount(unreadCount)}</span>`
+        : '';
       div.innerHTML = `
-        <span class="channel-icon"><i class="fa-solid fa-comment-dots"></i></span>
+        <span class="channel-icon dm-list-avatar" data-dm-avatar="${uid}">?</span>
         <span data-uid="${uid}">Loading...</span>
-        <button class="action-btn delete" style="margin-left:auto;display:none;" data-remove="${uid}" title="Remove Friend"><i class="fa-solid fa-xmark"></i></button>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px;" data-dm-meta="${uid}">
+          ${unreadBadge}
+          <button class="action-btn delete" style="display:none;" data-remove="${uid}" title="Remove Friend"><i class="fa-solid fa-xmark"></i></button>
+        </span>
       `;
       div.onclick = () => openDm(uid, { username: div.querySelector(`[data-uid="${uid}"]`).textContent || 'Unknown' });
       div.addEventListener('mouseenter', () => {
@@ -425,6 +833,14 @@ function loadDirectMessages() {
         const username = profile.username || 'Unknown';
         const nameEl = div.querySelector(`[data-uid="${uid}"]`);
         if (nameEl) nameEl.textContent = username;
+        const avatarEl = div.querySelector(`[data-dm-avatar="${uid}"]`);
+        if (avatarEl) {
+          if (profile.avatar) {
+            avatarEl.innerHTML = `<img src="${profile.avatar}" style="width:100%;height:100%;object-fit:cover;">`;
+          } else {
+            avatarEl.textContent = username.charAt(0).toUpperCase();
+          }
+        }
         if (currentDmUser && currentDmUser.uid === uid) {
           currentDmUser.username = username;
           elements.currentChannelName.textContent = username;
@@ -432,7 +848,10 @@ function loadDirectMessages() {
         }
       });
       dmProfileListeners[uid] = () => profileRef.off('value', handler);
+      startDmUnreadWatcher(uid);
+      renderDmUnreadForUser(uid);
     });
+    renderDmServerRail();
   });
 
   // Friend requests
@@ -554,6 +973,9 @@ function showDiscoveryDetails(serverId, data) {
 
 function openDm(targetUid, profile) {
   if (!currentUser) return;
+  if (currentChannelType === 'dm' && currentChannel && currentDmUser && currentDmUser.uid !== targetUid) {
+    syncUnreadOnLeavingDm(currentChannel);
+  }
   currentServer = null;
   currentDmId = getDmId(currentUser.uid, targetUid);
   currentDmUser = { uid: targetUid, ...(profile || {}) };
@@ -569,6 +991,11 @@ function openDm(targetUid, profile) {
   elements.messageInput.disabled = false;
   elements.messageInput.placeholder = `Message @${currentDmUser.username || 'user'}`;
   if (elements.dmCallBtn) elements.dmCallBtn.style.display = 'inline-flex';
+  dmUnreadByUid[targetUid] = 0;
+  markDmReadToLatest(currentDmId).then(() => {
+    refreshAllDmUnreadNow();
+  });
+  renderDmServerRail();
 
   loadMessages();
   loadDirectMessages();
@@ -706,7 +1133,19 @@ function isServerNameTaken(name, excludeServerId = null) {
   });
 }
 
+function setCreateServerPending(pending) {
+  createServerInProgress = !!pending;
+  const btn = document.getElementById('createServerBtn');
+  if (!btn) return;
+  if (!btn.dataset.defaultText) {
+    btn.dataset.defaultText = btn.textContent || 'Create Server';
+  }
+  btn.disabled = createServerInProgress;
+  btn.textContent = createServerInProgress ? 'Creating...' : btn.dataset.defaultText;
+}
+
 function createServer() {
+  if (createServerInProgress) return;
   const serverNameInput = document.getElementById('serverNameInput');
   const name = serverNameInput ? serverNameInput.value.trim() : '';
   
@@ -723,9 +1162,12 @@ function createServer() {
     return;
   }
 
+  setCreateServerPending(true);
+
   isServerNameTaken(name).then(taken => {
     if (taken) {
       showToast('A server with that name already exists', 'error');
+      setCreateServerPending(false);
       return;
     }
 
@@ -782,6 +1224,10 @@ function createServer() {
         if (serverIconLabel) serverIconLabel.textContent = 'Click to upload server icon';
         
         showToast('Server created successfully!', 'success');
+        setCreateServerPending(false);
+      }).catch((error) => {
+        showToast('Failed to create server: ' + error.message, 'error');
+        setCreateServerPending(false);
       });
     };
 
@@ -794,6 +1240,7 @@ function createServer() {
     }
   }).catch(err => {
     showToast('Failed to validate server name: ' + err.message, 'error');
+    setCreateServerPending(false);
   });
 }
 

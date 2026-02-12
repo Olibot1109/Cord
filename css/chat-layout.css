@@ -1,0 +1,75 @@
+/* Chat Container */
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #313338;
+  min-width: 0;
+}
+
+.chat-header {
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #1e1f22;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #f2f3f5;
+  flex-shrink: 0;
+}
+
+.chat-header .channel-icon {
+  color: #949ba4;
+  font-size: 24px;
+}
+
+.chat-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-divider {
+  width: 1px;
+  height: 24px;
+  background: #3f4147;
+  margin: 0 8px;
+}
+
+.chat-header-topic {
+  color: #949ba4;
+  font-size: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-btn {
+  background: #2b2d31;
+  border: none;
+  color: #b5bac1;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.1s;
+}
+
+.header-btn:hover {
+  background: #35363c;
+  color: #dbdee1;
+}
+

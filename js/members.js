@@ -74,6 +74,16 @@ function uploadAvatar(file) {
 const memberProfileCache = {};
 const memberProfilePromises = {};
 
+function invalidateCachedProfile(uid) {
+  if (!uid) return;
+  if (typeof memberProfileCache !== 'undefined') delete memberProfileCache[uid];
+  if (typeof memberProfilePromises !== 'undefined') delete memberProfilePromises[uid];
+  if (typeof messageProfileCache !== 'undefined') delete messageProfileCache[uid];
+  if (typeof messageProfilePromises !== 'undefined') delete messageProfilePromises[uid];
+  if (typeof dmPingProfileCache !== 'undefined') delete dmPingProfileCache[uid];
+  if (typeof dmPingProfilePromises !== 'undefined') delete dmPingProfilePromises[uid];
+}
+
 function getMemberProfile(uid) {
   if (!uid) return Promise.resolve(null);
   if (memberProfileCache[uid]) return Promise.resolve(memberProfileCache[uid]);
@@ -115,6 +125,7 @@ function updateMemberData() {
 
 function updateProfileData() {
   if (!currentUser) return;
+  invalidateCachedProfile(currentUser.uid);
   db.ref(`profiles/${currentUser.uid}`).update({
     username: userProfile.username,
     avatar: userProfile.avatar,
@@ -175,6 +186,8 @@ function loadMemberList() {
 
         membersList.forEach(member => {
           const cachedProfile = memberProfileCache[member.uid];
+          if (cachedProfile?.username) member.username = cachedProfile.username;
+          if (cachedProfile?.bio) member.bio = cachedProfile.bio;
           member.status = cachedProfile?.status || member.status || 'offline';
           member.lastSeen = cachedProfile?.lastSeen || member.lastSeen || 0;
           const isOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
@@ -229,10 +242,11 @@ function loadMemberList() {
           
           const ownerBadge = ownerId && member.uid === ownerId ? '<span class="role-badge" style="background:#f0b232"><i class="fa-solid fa-crown" style="margin-right:6px;"></i>OWNER</span>' : '';
           const bioLine = member.bio ? `<div class="member-bio">${escapeHtml(member.bio)}</div>` : '';
-          const fallbackInitial = member.username ? member.username.charAt(0).toUpperCase() : '?';
+          const fallbackInitial = (cachedProfile?.username || member.username || '?').charAt(0).toUpperCase();
+          const initialAvatarMarkup = cachedProfile?.avatar ? `<img src="${cachedProfile.avatar}">` : fallbackInitial;
           memberDiv.innerHTML = `
             <div class="member-avatar" data-avatar-for="${member.uid}" style="background:${getRoleColor(member.role)}">
-              ${member.avatar ? `<img src="${member.avatar}">` : fallbackInitial}
+              ${initialAvatarMarkup}
               <div class="member-status ${statusClass}"></div>
             </div>
             <div class="member-info">
@@ -302,13 +316,16 @@ function loadMemberList() {
           </div>
         `;
         membersList.forEach(member => {
+          const cachedProfile = memberProfileCache[member.uid];
+          if (cachedProfile?.username) member.username = cachedProfile.username;
           const memberDiv = document.createElement('div');
           memberDiv.className = 'member-item';
           memberDiv.setAttribute('data-uid', member.uid);
-          const fallbackInitial = member.username ? member.username.charAt(0).toUpperCase() : '?';
+          const fallbackInitial = (cachedProfile?.username || member.username || '?').charAt(0).toUpperCase();
+          const initialAvatarMarkup = cachedProfile?.avatar ? `<img src="${cachedProfile.avatar}">` : fallbackInitial;
           memberDiv.innerHTML = `
             <div class="member-avatar" data-avatar-for="${member.uid}" style="background:${getRoleColor(member.role)}">
-              ${member.avatar ? `<img src="${member.avatar}">` : fallbackInitial}
+              ${initialAvatarMarkup}
               <div class="member-status"></div>
             </div>
             <div class="member-info">
@@ -370,11 +387,16 @@ function showMemberContextMenu(e, member) {
   menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
 
   const canManageRoles = hasPermission('manage_roles');
+  const canKickMembers = hasPermission('manage_messages') || hasPermission('manage_server');
   const isSelf = member.uid === currentUser.uid;
+  const isOwner = !!(currentServerOwnerId && member.uid === currentServerOwnerId);
 
   menu.innerHTML = `
     <div class="context-menu-item" data-action="add-friend" style="padding: 8px; cursor: ${isSelf ? 'not-allowed' : 'pointer'}; color: ${isSelf ? '#7f8187' : '#dbdee1'}; border-radius: 4px;">
       <i class="fa-solid fa-user-plus" style="margin-right:6px;"></i> Add Friend
+    </div>
+    <div class="context-menu-item" data-action="kick-member" style="padding: 8px; cursor: ${(!canKickMembers || isSelf || isOwner) ? 'not-allowed' : 'pointer'}; color: ${(!canKickMembers || isSelf || isOwner) ? '#7f8187' : '#f28b8d'}; border-radius: 4px;">
+      <i class="fa-solid fa-user-minus" style="margin-right:6px;"></i> Kick
     </div>
     <div style="height:1px;background:#1e1f22;margin:6px 0;"></div>
     <div style="padding: 6px 8px; font-size: 11px; text-transform: uppercase; color: #7f8187; letter-spacing: 0.6px;">Roles</div>
@@ -395,6 +417,10 @@ function showMemberContextMenu(e, member) {
   const addFriendItem = menu.querySelector('[data-action="add-friend"]');
   if (addFriendItem && !isSelf) {
     addFriendItem.addEventListener('click', () => addFriendByUid(member.uid, member.username));
+  }
+  const kickMemberItem = menu.querySelector('[data-action="kick-member"]');
+  if (kickMemberItem && canKickMembers && !isSelf && !isOwner) {
+    kickMemberItem.addEventListener('click', () => kickMemberFromServer(member));
   }
 
   const roleMenuItems = menu.querySelector('#roleMenuItems');
@@ -442,6 +468,45 @@ function showMemberContextMenu(e, member) {
   }, { once: true });
 
   document.body.appendChild(menu);
+}
+
+function kickMemberFromServer(member) {
+  if (!currentServer || !member || !member.uid) return;
+  if (!hasPermission('manage_messages') && !hasPermission('manage_server')) {
+    showToast('You do not have permission to kick members', 'error');
+    return;
+  }
+  if (member.uid === currentUser.uid) {
+    showToast('You cannot kick yourself', 'error');
+    return;
+  }
+  if (currentServerOwnerId && member.uid === currentServerOwnerId) {
+    showToast('You cannot kick the server owner', 'error');
+    return;
+  }
+
+  const name = member.username || 'this member';
+  if (!confirm(`Kick ${name} from this server?`)) return;
+
+  const updates = {};
+  updates[`servers/${currentServer}/members/${member.uid}`] = null;
+
+  db.ref(`servers/${currentServer}/voiceChannels`).once('value').then((snap) => {
+    const voiceChannels = snap.val() || {};
+    Object.keys(voiceChannels).forEach((channelName) => {
+      updates[`servers/${currentServer}/voiceChannels/${channelName}/users/${member.uid}`] = null;
+    });
+    return db.ref().update(updates);
+  }).then(() => {
+    const actor = userProfile.username || 'A moderator';
+    if (typeof sendSystemMessage === 'function') {
+      sendSystemMessage(currentServer, `${name} was kicked by ${actor}.`);
+    }
+    showToast(`${name} was kicked`, 'success');
+    loadMemberList();
+  }).catch((err) => {
+    showToast('Failed to kick member: ' + err.message, 'error');
+  });
 }
 
 function setMemberRole(member, roleName) {

@@ -1,5 +1,73 @@
 // Voice + WebRTC
+let voiceUsersRef = null;
+let voiceSelfStateRef = null;
+let voiceSessionServerId = null;
+let voiceJoinInProgress = false;
+let remoteVoiceStreams = {};
+let muteBeforeDeafen = false;
+let voicePanelMinimized = false;
+
+function getActiveVoiceServerId() {
+  return voiceSessionServerId || currentServer || null;
+}
+
+function getActiveVoiceSignalPath() {
+  const serverId = getActiveVoiceServerId();
+  if (!serverId || !currentVoiceChannel) return null;
+  return `servers/${serverId}/voiceChannels/${currentVoiceChannel}/signals`;
+}
+
+function getVoiceConnectionLabel(channelName) {
+  const cleanChannel = String(channelName || '').trim() || 'Unknown';
+  const serverNameEl = document.getElementById('serverName');
+  const serverName = serverNameEl ? String(serverNameEl.textContent || '').trim() : '';
+  if (!serverName || serverName === 'Home Server') {
+    return cleanChannel;
+  }
+  return `${serverName} / ${cleanChannel}`;
+}
+
+function updateVoicePanelToggleButton() {
+  const btn = document.getElementById('voicePanelToggleBtn');
+  if (!btn) return;
+  if (voicePanelMinimized) {
+    btn.title = 'Expand';
+    btn.innerHTML = '<i class="fa-solid fa-up-right-and-down-left-from-center"></i>';
+  } else {
+    btn.title = 'Collapse';
+    btn.innerHTML = '<i class="fa-solid fa-window-minimize"></i>';
+  }
+}
+
+function applyVoicePanelVisibility() {
+  const panel = elements.voicePanel;
+  if (!panel) return;
+  if (!inVoiceChannel) {
+    panel.classList.remove('active');
+    panel.classList.remove('compact');
+    updateVoicePanelToggleButton();
+    return;
+  }
+  panel.classList.add('active');
+  panel.classList.toggle('compact', voicePanelMinimized);
+  updateVoicePanelToggleButton();
+}
+
+function toggleVoicePanelMinimize() {
+  if (!inVoiceChannel) return;
+  voicePanelMinimized = !voicePanelMinimized;
+  applyVoicePanelVisibility();
+}
+
+function restoreVoicePanel() {
+  if (!inVoiceChannel) return;
+  voicePanelMinimized = false;
+  applyVoicePanelVisibility();
+}
+
 function setupCaller(pc, otherUid) {
+  const signalPath = getActiveVoiceSignalPath();
+  if (!signalPath) return;
   pc.createOffer({
     offerToReceiveAudio: true,
     offerToReceiveVideo: true
@@ -10,7 +78,7 @@ function setupCaller(pc, otherUid) {
     })
     .then(() => {
       console.log('[WebRTC] Local description set (offer) for:', otherUid);
-      return db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/offer/${currentUser.uid}/${otherUid}`).set({
+      return db.ref(`${signalPath}/offer/${currentUser.uid}/${otherUid}`).set({
         type: pc.localDescription.type,
         sdp: pc.localDescription.sdp,
         timestamp: Date.now()
@@ -23,7 +91,7 @@ function setupCaller(pc, otherUid) {
       console.error('[WebRTC] Error creating/sending offer:', error);
     });
 
-  const answerRef = db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/answer/${otherUid}/${currentUser.uid}`);
+  const answerRef = db.ref(`${signalPath}/answer/${otherUid}/${currentUser.uid}`);
   answerRef.on('value', (snapshot) => {
     const answer = snapshot.val();
     if (!answer) return;
@@ -54,7 +122,9 @@ function setupCaller(pc, otherUid) {
 }
 
 function setupCallee(pc, otherUid) {
-  db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/offer/${otherUid}/${currentUser.uid}`).on('value', (snapshot) => {
+  const signalPath = getActiveVoiceSignalPath();
+  if (!signalPath) return;
+  db.ref(`${signalPath}/offer/${otherUid}/${currentUser.uid}`).on('value', (snapshot) => {
     const offer = snapshot.val();
     if (!offer || pc.remoteDescription) return;
     if (offer.timestamp && peerSessionStart[otherUid] && offer.timestamp < peerSessionStart[otherUid]) {
@@ -70,7 +140,7 @@ function setupCallee(pc, otherUid) {
       })
       .then(answer => pc.setLocalDescription(answer))
       .then(() => {
-        return db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/answer/${currentUser.uid}/${otherUid}`).set({
+        return db.ref(`${signalPath}/answer/${currentUser.uid}/${otherUid}`).set({
           type: pc.localDescription.type,
           sdp: pc.localDescription.sdp,
           timestamp: Date.now()
@@ -88,7 +158,9 @@ function setupCallee(pc, otherUid) {
 }
 
 function setupIceCandidateListener(pc, otherUid) {
-  const candidateRef = db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/iceCandidates/${otherUid}/${currentUser.uid}`);
+  const signalPath = getActiveVoiceSignalPath();
+  if (!signalPath) return;
+  const candidateRef = db.ref(`${signalPath}/iceCandidates/${otherUid}/${currentUser.uid}`);
   candidateRef.on('child_added', (snapshot) => {
     const data = snapshot.val();
     if (!data || !data.candidate) return;
@@ -148,16 +220,23 @@ function cleanupPeerConnection(otherUid) {
   if (peerSessionStart[otherUid]) {
     delete peerSessionStart[otherUid];
   }
+  if (remoteVoiceStreams[otherUid]) {
+    delete remoteVoiceStreams[otherUid];
+  }
 
   const remoteAudio = document.getElementById(`remoteAudio-${otherUid}`);
   if (remoteAudio) {
     remoteAudio.remove();
   }
 
-  const signalPath = `servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals`;
-  db.ref(`${signalPath}/offer/${otherUid}/${currentUser.uid}`).off();
-  db.ref(`${signalPath}/answer/${otherUid}/${currentUser.uid}`).off();
-  db.ref(`${signalPath}/iceCandidates/${otherUid}/${currentUser.uid}`).off();
+  const serverId = voiceSessionServerId || currentServer;
+  const channelName = currentVoiceChannel;
+  if (serverId && channelName) {
+    const signalPath = `servers/${serverId}/voiceChannels/${channelName}/signals`;
+    db.ref(`${signalPath}/offer/${otherUid}/${currentUser.uid}`).off();
+    db.ref(`${signalPath}/answer/${otherUid}/${currentUser.uid}`).off();
+    db.ref(`${signalPath}/iceCandidates/${otherUid}/${currentUser.uid}`).off();
+  }
 
   const participantEl = document.getElementById(`participant-${otherUid}`);
   if (participantEl) {
@@ -199,8 +278,10 @@ function establishPeerConnection(otherUid) {
   });
 
   pc.onicecandidate = (e) => {
+    const signalPath = getActiveVoiceSignalPath();
+    if (!signalPath) return;
     if (e.candidate) {
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/iceCandidates/${currentUser.uid}/${otherUid}`).push({
+      db.ref(`${signalPath}/iceCandidates/${currentUser.uid}/${otherUid}`).push({
         candidate: e.candidate.candidate,
         sdpMid: e.candidate.sdpMid,
         sdpMLineIndex: e.candidate.sdpMLineIndex,
@@ -217,6 +298,8 @@ function establishPeerConnection(otherUid) {
       console.error('[WebRTC] No stream in track event');
       return;
     }
+
+    remoteVoiceStreams[otherUid] = stream;
 
     if (e.track.kind === 'video') {
       setTimeout(() => {
@@ -265,7 +348,7 @@ function establishPeerConnection(otherUid) {
       }
 
       remoteAudio.srcObject = stream;
-      remoteAudio.muted = false;
+      remoteAudio.muted = !!isDeafened;
 
       const playAudio = () => {
         remoteAudio.play()
@@ -306,6 +389,71 @@ function getMediaStreamWithFallback() {
     });
 }
 
+function applyVoiceAudioState() {
+  if (localStream) {
+    const shouldSendMic = !(isMuted || isDeafened);
+    localStream.getAudioTracks().forEach(track => {
+      track.enabled = shouldSendMic;
+    });
+  }
+
+  document.querySelectorAll('audio[id^="remoteAudio-"]').forEach(audioEl => {
+    audioEl.muted = !!isDeafened;
+  });
+}
+
+function syncVoiceControlButtons() {
+  const voiceMuteBtn = document.getElementById('voiceMuteBtn');
+  if (voiceMuteBtn) {
+    voiceMuteBtn.classList.toggle('active', isMuted);
+    voiceMuteBtn.innerHTML = isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
+  }
+
+  const micBtn = document.getElementById('micBtn');
+  if (micBtn) {
+    micBtn.style.color = isMuted ? '#ed4245' : '#b5bac1';
+    micBtn.innerHTML = isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
+  }
+
+  const voiceDeafenBtn = document.getElementById('voiceDeafenBtn');
+  if (voiceDeafenBtn) {
+    voiceDeafenBtn.classList.toggle('active', isDeafened);
+  }
+  const deafenBtn = document.getElementById('deafenBtn');
+  if (deafenBtn) {
+    deafenBtn.style.color = isDeafened ? '#ed4245' : '';
+  }
+}
+
+function writeCurrentVoiceState() {
+  const serverId = voiceSessionServerId || currentServer;
+  if (!inVoiceChannel || !serverId || !currentVoiceChannel || !currentUser?.uid) return;
+  db.ref(`servers/${serverId}/voiceChannels/${currentVoiceChannel}/users/${currentUser.uid}/muted`).set(isMuted || isDeafened);
+  db.ref(`servers/${serverId}/voiceChannels/${currentVoiceChannel}/users/${currentUser.uid}/deafened`).set(isDeafened);
+}
+
+function bindSelfVoiceStateListener(serverId, channelName) {
+  if (voiceSelfStateRef) {
+    voiceSelfStateRef.off();
+    voiceSelfStateRef = null;
+  }
+  if (!serverId || !channelName || !currentUser?.uid) return;
+  voiceSelfStateRef = db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`);
+  voiceSelfStateRef.on('value', (snap) => {
+    const state = snap.val();
+    if (!state || typeof state !== 'object') return;
+    const nextDeafened = !!state.deafened;
+    const nextMutedRaw = !!state.muted;
+    const nextMuted = nextDeafened ? true : nextMutedRaw;
+    if (nextMuted === isMuted && nextDeafened === isDeafened) return;
+    isDeafened = nextDeafened;
+    isMuted = nextMuted;
+    applyVoiceAudioState();
+    syncVoiceControlButtons();
+    updateUserVoiceStatus();
+  });
+}
+
 function joinVoiceChannel(channelName) {
   console.log('[Voice Channel] Attempting to join voice channel:', {
     channelName,
@@ -313,12 +461,40 @@ function joinVoiceChannel(channelName) {
     currentUserUid: currentUser?.uid
   });
 
+  if (isDmCallActive()) {
+    showToast('You cannot join a server voice chat while in a DM call', 'error');
+    return;
+  }
+
   if (!currentServer) {
     console.error('[Voice Channel] Cannot join voice channel: No current server');
     return;
   }
 
-  getMediaStreamWithFallback()
+  if (voiceJoinInProgress) {
+    showToast('Joining voice channel...', 'info');
+    return;
+  }
+  voiceJoinInProgress = true;
+
+  const targetServerId = currentServer;
+  const channelRef = db.ref(`servers/${targetServerId}/voiceChannels/${channelName}`);
+
+  channelRef.once('value')
+    .then(snapshot => {
+      const channelData = snapshot.val();
+      if (!channelData) {
+        throw new Error('VOICE_CHANNEL_NOT_FOUND');
+      }
+      const users = channelData.users || {};
+      const limit = Number(channelData.limit) || 0;
+      const currentCount = Object.keys(users).length;
+      const alreadyInChannel = !!users[currentUser.uid];
+      if (limit > 0 && currentCount >= limit && !alreadyInChannel) {
+        throw new Error('VOICE_CHANNEL_FULL');
+      }
+      return getMediaStreamWithFallback();
+    })
     .then(stream => {
       console.log('[Voice Channel] Media permissions granted');
 
@@ -328,25 +504,26 @@ function joinVoiceChannel(channelName) {
       }
 
       localStream = stream;
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted;
-      });
+      applyVoiceAudioState();
       const videoTracks = localStream.getVideoTracks();
       isCameraOn = videoTracks.length > 0 && videoTracks[0].enabled;
       updateCameraButton();
 
+      voiceSessionServerId = targetServerId;
       currentVoiceChannel = channelName;
       inVoiceChannel = true;
+      voicePanelMinimized = true;
 
-      db.ref(`servers/${currentServer}/voiceChannels/${channelName}/users/${currentUser.uid}`).set({
+      db.ref(`servers/${voiceSessionServerId}/voiceChannels/${channelName}/users/${currentUser.uid}`).set({
         username: userProfile.username,
-        muted: isMuted,
+        muted: isMuted || isDeafened,
         deafened: isDeafened,
         joinedAt: Date.now()
       });
 
-      elements.voicePanel.classList.add('active');
-      elements.voiceChannelName.textContent = channelName;
+      elements.voiceChannelName.textContent = getVoiceConnectionLabel(channelName);
+      applyVoicePanelVisibility();
+      syncVoiceControlButtons();
 
       setupVoiceUsersListener(channelName);
       loadMemberList();
@@ -369,12 +546,29 @@ function joinVoiceChannel(channelName) {
     })
     .catch(error => {
       console.error('Microphone permission error:', error);
-      showToast('Microphone access is required to join voice channels', 'error');
+      if (error && error.message === 'VOICE_CHANNEL_NOT_FOUND') {
+        showToast('Voice channel no longer exists', 'error');
+      } else if (error && error.message === 'VOICE_CHANNEL_FULL') {
+        showToast('Voice channel is full', 'error');
+      } else {
+        showToast('Microphone access is required to join voice channels', 'error');
+      }
+    })
+    .finally(() => {
+      voiceJoinInProgress = false;
     });
 }
 
 function setupVoiceUsersListener(channelName) {
-  db.ref(`servers/${currentServer}/voiceChannels/${channelName}/users`).on('value', snapshot => {
+  if (voiceUsersRef) {
+    voiceUsersRef.off();
+  }
+  const serverId = voiceSessionServerId || currentServer;
+  if (!serverId) return;
+  bindSelfVoiceStateListener(serverId, channelName);
+
+  voiceUsersRef = db.ref(`servers/${serverId}/voiceChannels/${channelName}/users`);
+  voiceUsersRef.on('value', snapshot => {
     const users = snapshot.val() || {};
     elements.voiceVideoGrid.innerHTML = '';
 
@@ -404,9 +598,22 @@ function setupVoiceUsersListener(channelName) {
       `;
 
       elements.voiceVideoGrid.appendChild(div);
+      if (remoteVoiceStreams[uid]) {
+        const remoteVideo = document.getElementById(`remoteVideo-${uid}`);
+        if (remoteVideo) {
+          remoteVideo.srcObject = remoteVoiceStreams[uid];
+          remoteVideo.play().catch(() => {});
+        }
+      }
 
       if (!peerConnections[uid]) {
         establishPeerConnection(uid);
+      }
+    });
+
+    Object.keys(peerConnections).forEach(uid => {
+      if (!users[uid]) {
+        cleanupPeerConnection(uid);
       }
     });
   });
@@ -420,12 +627,15 @@ function disconnectVoice() {
     currentUserUid: currentUser?.uid
   });
 
-  if (!inVoiceChannel || !currentServer) {
+  const serverId = voiceSessionServerId || currentServer;
+  const channelName = currentVoiceChannel;
+
+  if (!inVoiceChannel || !serverId || !channelName) {
     console.log('[Voice Channel] Not in a voice channel to disconnect from');
     return;
   }
 
-  db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/users/${currentUser.uid}`).remove()
+  db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).remove()
     .then(() => {
       console.log('[Voice Channel] Successfully removed user from voice channel in database');
     })
@@ -433,7 +643,14 @@ function disconnectVoice() {
       console.error('[Voice Channel] Error removing user from voice channel:', error);
     });
 
-  db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/users`).off();
+  if (voiceUsersRef) {
+    voiceUsersRef.off();
+    voiceUsersRef = null;
+  }
+  if (voiceSelfStateRef) {
+    voiceSelfStateRef.off();
+    voiceSelfStateRef = null;
+  }
 
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());
@@ -444,15 +661,15 @@ function disconnectVoice() {
     const pc = peerConnections[otherUid];
     if (pc) {
       pc.close();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/iceCandidates/${currentUser.uid}/${otherUid}`).off();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/iceCandidates/${otherUid}/${currentUser.uid}`).off();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/offer/${currentUser.uid}/${otherUid}`).off();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/offer/${otherUid}/${currentUser.uid}`).off();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/answer/${currentUser.uid}/${otherUid}`).off();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/answer/${otherUid}/${currentUser.uid}`).off();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/iceCandidates/${currentUser.uid}/${otherUid}`).remove();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/offer/${currentUser.uid}/${otherUid}`).remove();
-      db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/signals/answer/${currentUser.uid}/${otherUid}`).remove();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/iceCandidates/${currentUser.uid}/${otherUid}`).off();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/iceCandidates/${otherUid}/${currentUser.uid}`).off();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/offer/${currentUser.uid}/${otherUid}`).off();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/offer/${otherUid}/${currentUser.uid}`).off();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/answer/${currentUser.uid}/${otherUid}`).off();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/answer/${otherUid}/${currentUser.uid}`).off();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/iceCandidates/${currentUser.uid}/${otherUid}`).remove();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/offer/${currentUser.uid}/${otherUid}`).remove();
+      db.ref(`servers/${serverId}/voiceChannels/${channelName}/signals/answer/${currentUser.uid}/${otherUid}`).remove();
     }
   });
 
@@ -462,8 +679,11 @@ function disconnectVoice() {
 
   inVoiceChannel = false;
   currentVoiceChannel = null;
+  voiceSessionServerId = null;
+  voicePanelMinimized = false;
   isCameraOn = false;
-  elements.voicePanel.classList.remove('active');
+  remoteVoiceStreams = {};
+  applyVoicePanelVisibility();
   if (elements.voiceVideoGrid) {
     elements.voiceVideoGrid.innerHTML = '';
   }
@@ -478,55 +698,41 @@ function disconnectVoice() {
 }
 
 function toggleVoiceMute() {
+  if (isDeafened && isMuted) {
+    showToast('Undeafen first to unmute your mic', 'info');
+    return;
+  }
   isMuted = !isMuted;
-  const btn = document.getElementById('voiceMuteBtn');
-  if (btn) {
-    btn.classList.toggle('active', isMuted);
-    btn.innerHTML = isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
-  }
-
-  if (localStream) {
-    localStream.getAudioTracks().forEach(track => {
-      track.enabled = !isMuted;
-    });
-  }
-
-  if (inVoiceChannel && currentServer) {
-    db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/users/${currentUser.uid}/muted`).set(isMuted);
-  }
+  applyVoiceAudioState();
+  syncVoiceControlButtons();
+  writeCurrentVoiceState();
+  updateUserVoiceStatus();
 }
 
 function toggleDeafen() {
-  isDeafened = !isDeafened;
-  const btn = document.getElementById('voiceDeafenBtn');
-  if (btn) btn.classList.toggle('active', isDeafened);
-
-  if (inVoiceChannel && currentServer) {
-    db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/users/${currentUser.uid}/deafened`).set(isDeafened);
+  const enabling = !isDeafened;
+  if (enabling) {
+    muteBeforeDeafen = !!isMuted;
+    isMuted = true;
+  } else {
+    isMuted = !!muteBeforeDeafen;
   }
-
+  isDeafened = !isDeafened;
+  applyVoiceAudioState();
+  syncVoiceControlButtons();
+  writeCurrentVoiceState();
   updateUserVoiceStatus();
 }
 
 function toggleMute() {
+  if (isDeafened && isMuted) {
+    showToast('Undeafen first to unmute your mic', 'info');
+    return;
+  }
   isMuted = !isMuted;
-
-  const btn = document.getElementById('micBtn');
-  if (btn) {
-    btn.style.color = isMuted ? '#ed4245' : '#b5bac1';
-    btn.innerHTML = isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
-  }
-
-  if (localStream) {
-    localStream.getAudioTracks().forEach(track => {
-      track.enabled = !isMuted;
-    });
-  }
-
-  if (inVoiceChannel && currentServer) {
-    db.ref(`servers/${currentServer}/voiceChannels/${currentVoiceChannel}/users/${currentUser.uid}/muted`).set(isMuted);
-  }
-
+  applyVoiceAudioState();
+  syncVoiceControlButtons();
+  writeCurrentVoiceState();
   updateUserVoiceStatus();
 }
 
@@ -563,20 +769,56 @@ let dmCallStream = null;
 let dmCallPeerUid = null;
 let dmCallSessionStart = 0;
 let dmIncomingOffer = null;
+let dmIncomingDmId = null;
+let dmIncomingCallerName = '';
+let dmActiveCallId = null;
 let dmCallOfferRef = null;
 let dmCallAnswerRef = null;
 let dmCallIceRef = null;
 let dmCallEndedRef = null;
+let dmCallMinimized = false;
+let dmCallMicOn = true;
+let dmCallCameraOn = true;
+let dmCallAudioOn = true;
+let dmFriendWatcherRef = null;
+let dmOfferRefs = {};
+let dmMiniDockDragState = {
+  active: false,
+  pointerId: null,
+  offsetX: 0,
+  offsetY: 0
+};
+
+function getDmIdForUsers(uidA, uidB) {
+  if (!uidA || !uidB) return null;
+  if (typeof getDmId === 'function') {
+    return getDmId(uidA, uidB);
+  }
+  return [uidA, uidB].sort().join('_');
+}
+
+function getCurrentDmCallId() {
+  if (dmActiveCallId) return dmActiveCallId;
+  if (currentChannel && currentChannelType === 'dm') return currentChannel;
+  if (dmIncomingDmId) return dmIncomingDmId;
+  return null;
+}
 
 function getDmCallBaseRef() {
-  if (!currentChannel || currentChannelType !== 'dm') return null;
-  return db.ref(`dms/${currentChannel}/call`);
+  const dmId = getCurrentDmCallId();
+  if (!dmId) return null;
+  return db.ref(`dms/${dmId}/call`);
 }
 
 function showDmCallOverlay(show) {
   const overlay = document.getElementById('dmCallOverlay');
   if (!overlay) return;
-  overlay.style.display = show ? 'flex' : 'none';
+  overlay.style.display = show && !dmCallMinimized ? 'flex' : 'none';
+  const dock = document.getElementById('dmCallMiniDock');
+  if (dock) {
+    initDmCallMiniDockDrag();
+    dock.style.display = show && dmCallMinimized ? 'flex' : 'none';
+  }
 }
 
 function setDmCallTitle(text) {
@@ -592,10 +834,119 @@ function showDmIncoming(show, name) {
   incoming.style.display = show ? 'block' : 'none';
 }
 
+function setDmDockTitle(text) {
+  const label = document.getElementById('dmCallMiniTitle');
+  if (label) label.textContent = text || 'DM call';
+}
+
+function isDmCallActive() {
+  return !!(dmCallPc || dmCallStream || dmActiveCallId);
+}
+
+function initDmCallMiniDockDrag() {
+  const dock = document.getElementById('dmCallMiniDock');
+  const handle = document.getElementById('dmCallMiniHandle');
+  if (!dock || !handle || dock.dataset.dragReady === '1') return;
+
+  const clampDockToViewport = () => {
+    if (dock.style.left === '' && dock.style.top === '') return;
+    const rect = dock.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    const maxY = Math.max(0, window.innerHeight - rect.height);
+    const nextLeft = Math.min(Math.max(0, rect.left), maxX);
+    const nextTop = Math.min(Math.max(0, rect.top), maxY);
+    dock.style.left = `${nextLeft}px`;
+    dock.style.top = `${nextTop}px`;
+    dock.style.right = 'auto';
+    dock.style.bottom = 'auto';
+  };
+
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const rect = dock.getBoundingClientRect();
+    dmMiniDockDragState.active = true;
+    dmMiniDockDragState.pointerId = event.pointerId;
+    dmMiniDockDragState.offsetX = event.clientX - rect.left;
+    dmMiniDockDragState.offsetY = event.clientY - rect.top;
+    dock.classList.add('dragging');
+    dock.style.left = `${rect.left}px`;
+    dock.style.top = `${rect.top}px`;
+    dock.style.right = 'auto';
+    dock.style.bottom = 'auto';
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (event) => {
+    if (!dmMiniDockDragState.active || dmMiniDockDragState.pointerId !== event.pointerId) return;
+    const rect = dock.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    const maxY = Math.max(0, window.innerHeight - rect.height);
+    const nextLeft = Math.min(Math.max(0, event.clientX - dmMiniDockDragState.offsetX), maxX);
+    const nextTop = Math.min(Math.max(0, event.clientY - dmMiniDockDragState.offsetY), maxY);
+    dock.style.left = `${nextLeft}px`;
+    dock.style.top = `${nextTop}px`;
+    dock.style.right = 'auto';
+    dock.style.bottom = 'auto';
+  });
+
+  const endDrag = (event) => {
+    if (dmMiniDockDragState.pointerId !== event.pointerId) return;
+    dmMiniDockDragState.active = false;
+    dmMiniDockDragState.pointerId = null;
+    dock.classList.remove('dragging');
+    if (handle.hasPointerCapture(event.pointerId)) {
+      handle.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  handle.addEventListener('pointerup', endDrag);
+  handle.addEventListener('pointercancel', endDrag);
+  window.addEventListener('resize', clampDockToViewport);
+
+  dock.dataset.dragReady = '1';
+}
+
+function updateDmCallControlButtons() {
+  const micBtn = document.getElementById('dmCallMicBtn');
+  const camBtn = document.getElementById('dmCallCamBtn');
+  const audioBtn = document.getElementById('dmCallAudioBtn');
+  if (micBtn) {
+    micBtn.classList.toggle('active', !dmCallMicOn);
+    micBtn.innerHTML = dmCallMicOn ? '<i class="fa-solid fa-microphone"></i>' : '<i class="fa-solid fa-microphone-slash"></i>';
+  }
+  if (camBtn) {
+    camBtn.classList.toggle('active', !dmCallCameraOn);
+    camBtn.innerHTML = dmCallCameraOn ? '<i class="fa-solid fa-video"></i>' : '<i class="fa-solid fa-video-slash"></i>';
+  }
+  if (audioBtn) {
+    audioBtn.classList.toggle('active', !dmCallAudioOn);
+    audioBtn.innerHTML = dmCallAudioOn ? '<i class="fa-solid fa-volume-high"></i>' : '<i class="fa-solid fa-volume-xmark"></i>';
+  }
+  const remoteVideo = document.getElementById('dmRemoteVideo');
+  if (remoteVideo) {
+    remoteVideo.muted = !dmCallAudioOn;
+  }
+}
+
+function setDmCallDefaultsFromStream() {
+  dmCallMinimized = false;
+  const audioTracks = dmCallStream ? dmCallStream.getAudioTracks() : [];
+  const videoTracks = dmCallStream ? dmCallStream.getVideoTracks() : [];
+  dmCallMicOn = audioTracks.length === 0 ? true : !!audioTracks[0].enabled;
+  dmCallCameraOn = videoTracks.length === 0 ? false : !!videoTracks[0].enabled;
+  dmCallAudioOn = true;
+  updateDmCallControlButtons();
+}
+
 function resetDmCallState() {
   dmIncomingOffer = null;
+  dmIncomingDmId = null;
+  dmIncomingCallerName = '';
   dmCallPeerUid = null;
   dmCallSessionStart = 0;
+  dmActiveCallId = null;
+  dmCallMinimized = false;
   if (dmCallPc) {
     dmCallPc.ontrack = null;
     dmCallPc.onicecandidate = null;
@@ -610,6 +961,10 @@ function resetDmCallState() {
   const remoteVideo = document.getElementById('dmRemoteVideo');
   if (localVideo) localVideo.srcObject = null;
   if (remoteVideo) remoteVideo.srcObject = null;
+  dmCallMicOn = true;
+  dmCallCameraOn = true;
+  dmCallAudioOn = true;
+  updateDmCallControlButtons();
   showDmCallOverlay(false);
   showDmIncoming(false);
 }
@@ -672,9 +1027,98 @@ function listenForDmCallEnd(otherUid) {
   });
 }
 
+function clearDmOffer(dmId, fromUid) {
+  if (!dmId || !fromUid) return Promise.resolve();
+  return db.ref(`dms/${dmId}/call/offer/${fromUid}`).remove().catch(() => {});
+}
+
+function fetchUsername(uid) {
+  if (!uid) return Promise.resolve('User');
+  return db.ref(`profiles/${uid}/username`).once('value').then(snap => snap.val() || 'User').catch(() => 'User');
+}
+
+function bindDmOfferListener(dmId, friendUid) {
+  if (!dmId || !friendUid || !currentUser) return;
+  const key = `${dmId}:${friendUid}`;
+  if (dmOfferRefs[key]) return;
+
+  const offerRef = db.ref(`dms/${dmId}/call/offer/${friendUid}`);
+  const handler = offerRef.on('value', (snap) => {
+    const offer = snap.val();
+    if (!offer || offer.to !== currentUser.uid) {
+      if (dmIncomingDmId === dmId && dmIncomingOffer && dmIncomingOffer.from === friendUid) {
+        dmIncomingOffer = null;
+        dmIncomingDmId = null;
+        dmIncomingCallerName = '';
+        showDmIncoming(false);
+      }
+      return;
+    }
+    if (isDmCallActive()) return;
+    dmIncomingOffer = offer;
+    dmIncomingDmId = dmId;
+    const knownName = currentDmUser && currentDmUser.uid === friendUid ? (currentDmUser.username || 'User') : '';
+    if (knownName) {
+      dmIncomingCallerName = knownName;
+      showDmIncoming(true, knownName);
+    } else {
+      fetchUsername(friendUid).then((username) => {
+        if (!dmIncomingOffer || dmIncomingOffer.from !== friendUid || dmIncomingDmId !== dmId) return;
+        dmIncomingCallerName = username || 'User';
+        showDmIncoming(true, dmIncomingCallerName);
+      });
+    }
+  });
+  dmOfferRefs[key] = { ref: offerRef, handler };
+}
+
+function stopGlobalDmCallListeners() {
+  if (dmFriendWatcherRef) {
+    dmFriendWatcherRef.off();
+    dmFriendWatcherRef = null;
+  }
+  Object.values(dmOfferRefs).forEach((entry) => {
+    if (entry && entry.ref && entry.handler) {
+      entry.ref.off('value', entry.handler);
+    }
+  });
+  dmOfferRefs = {};
+}
+
+function startGlobalDmCallListeners() {
+  if (!currentUser) return;
+  if (dmFriendWatcherRef) return;
+  dmFriendWatcherRef = db.ref(`friends/${currentUser.uid}`);
+  dmFriendWatcherRef.on('value', (snap) => {
+    const friends = snap.val() || {};
+    const friendUids = Object.keys(friends);
+    const activeKeys = new Set();
+    friendUids.forEach((friendUid) => {
+      const dmId = getDmIdForUsers(currentUser.uid, friendUid);
+      if (!dmId) return;
+      const key = `${dmId}:${friendUid}`;
+      activeKeys.add(key);
+      bindDmOfferListener(dmId, friendUid);
+    });
+
+    Object.keys(dmOfferRefs).forEach((key) => {
+      if (activeKeys.has(key)) return;
+      const entry = dmOfferRefs[key];
+      if (entry && entry.ref && entry.handler) {
+        entry.ref.off('value', entry.handler);
+      }
+      delete dmOfferRefs[key];
+    });
+  });
+}
+
 function startDmVideoCall() {
   if (!currentUser || currentChannelType !== 'dm' || !currentDmUser?.uid) {
     showToast('Open a DM to start a call', 'error');
+    return;
+  }
+  if (inVoiceChannel) {
+    showToast('Leave server voice chat before starting a DM call', 'error');
     return;
   }
   if (dmCallPc) {
@@ -682,8 +1126,14 @@ function startDmVideoCall() {
     return;
   }
   dmCallPeerUid = currentDmUser.uid;
+  dmActiveCallId = currentChannel;
   dmCallSessionStart = Date.now();
+  dmIncomingOffer = null;
+  dmIncomingDmId = null;
+  dmIncomingCallerName = '';
+  showDmIncoming(false);
   setDmCallTitle(`Video Call with ${currentDmUser.username || 'User'}`);
+  setDmDockTitle(`Call with ${currentDmUser.username || 'User'}`);
 
   const baseRef = getDmCallBaseRef();
   if (!baseRef) return;
@@ -691,6 +1141,7 @@ function startDmVideoCall() {
   navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
       dmCallStream = stream;
+      setDmCallDefaultsFromStream();
       const localVideo = document.getElementById('dmLocalVideo');
       if (localVideo) localVideo.srcObject = stream;
 
@@ -701,7 +1152,10 @@ function startDmVideoCall() {
 
       dmCallPc.ontrack = (e) => {
         const remoteVideo = document.getElementById('dmRemoteVideo');
-        if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+        if (remoteVideo) {
+          remoteVideo.srcObject = e.streams[0];
+          remoteVideo.muted = !dmCallAudioOn;
+        }
       };
 
       dmCallPc.onicecandidate = (e) => {
@@ -721,6 +1175,9 @@ function startDmVideoCall() {
       return dmCallPc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
     })
     .then(offer => dmCallPc.setLocalDescription(offer))
+    .then(() => {
+      return clearDmOffer(dmActiveCallId, dmCallPeerUid);
+    })
     .then(() => {
       const offerPayload = {
         type: dmCallPc.localDescription.type,
@@ -758,17 +1215,36 @@ function startDmVideoCall() {
 function acceptDmCall() {
   if (!dmIncomingOffer || !currentUser) return;
   if (dmCallPc) return;
+  const offerToAccept = { ...dmIncomingOffer };
+  if (inVoiceChannel) {
+    showToast('Leave server voice chat before accepting a DM call', 'error');
+    return;
+  }
+  if (dmIncomingDmId && offerToAccept.from && typeof openDm === 'function') {
+    const resolvedName = dmIncomingCallerName || currentDmUser?.username || 'User';
+    openDm(offerToAccept.from, { username: resolvedName });
+  }
 
-  dmCallPeerUid = dmIncomingOffer.from;
+  dmCallPeerUid = offerToAccept.from;
+  dmActiveCallId = dmIncomingDmId || getDmIdForUsers(currentUser.uid, dmCallPeerUid);
   dmCallSessionStart = Date.now();
-  setDmCallTitle(`Video Call with ${currentDmUser?.username || 'User'}`);
+  const callName = dmIncomingCallerName || currentDmUser?.username || 'User';
+  setDmCallTitle(`Video Call with ${callName}`);
+  setDmDockTitle(`Call with ${callName}`);
+  dmIncomingOffer = null;
+  dmIncomingDmId = null;
+  dmIncomingCallerName = '';
   showDmIncoming(false);
   const baseRef = getDmCallBaseRef();
-  if (baseRef) baseRef.child('ended').remove();
+  if (baseRef) {
+    baseRef.child('ended').remove();
+    clearDmOffer(dmActiveCallId, dmCallPeerUid);
+  }
 
   navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
       dmCallStream = stream;
+      setDmCallDefaultsFromStream();
       const localVideo = document.getElementById('dmLocalVideo');
       if (localVideo) localVideo.srcObject = stream;
 
@@ -778,7 +1254,10 @@ function acceptDmCall() {
       stream.getTracks().forEach(track => dmCallPc.addTrack(track, stream));
       dmCallPc.ontrack = (e) => {
         const remoteVideo = document.getElementById('dmRemoteVideo');
-        if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+        if (remoteVideo) {
+          remoteVideo.srcObject = e.streams[0];
+          remoteVideo.muted = !dmCallAudioOn;
+        }
       };
       dmCallPc.onicecandidate = (e) => {
         if (e.candidate) {
@@ -795,8 +1274,8 @@ function acceptDmCall() {
       listenForDmCallEnd(dmCallPeerUid);
 
       return dmCallPc.setRemoteDescription(new RTCSessionDescription({
-        type: dmIncomingOffer.type,
-        sdp: dmIncomingOffer.sdp
+        type: offerToAccept.type,
+        sdp: offerToAccept.sdp
       }));
     })
     .then(() => dmCallPc.createAnswer())
@@ -823,7 +1302,8 @@ function acceptDmCall() {
 
 function declineDmCall() {
   if (!dmIncomingOffer) return;
-  const baseRef = getDmCallBaseRef();
+  const dmId = dmIncomingDmId || getDmIdForUsers(currentUser?.uid, dmIncomingOffer.from);
+  const baseRef = dmId ? db.ref(`dms/${dmId}/call`) : null;
   if (baseRef && dmIncomingOffer.from) {
     baseRef.child('offer').child(dmIncomingOffer.from).remove();
     baseRef.child('ended').set({
@@ -832,6 +1312,8 @@ function declineDmCall() {
     });
   }
   dmIncomingOffer = null;
+  dmIncomingDmId = null;
+  dmIncomingCallerName = '';
   showDmIncoming(false);
 }
 
@@ -848,18 +1330,50 @@ function endDmCall(signalRemote = true) {
 }
 
 function startDmCallListeners() {
-  if (!currentUser || currentChannelType !== 'dm' || !currentDmUser?.uid) return;
-  const baseRef = getDmCallBaseRef();
-  if (!baseRef) return;
+  startGlobalDmCallListeners();
+}
 
-  if (dmCallOfferRef) dmCallOfferRef.off();
-  dmCallOfferRef = baseRef.child('offer');
-  dmCallOfferRef.on('value', (snap) => {
-    const offers = snap.val() || {};
-    const offer = offers[currentDmUser.uid];
-    if (!offer || offer.to !== currentUser.uid) return;
-    if (dmCallPc) return;
-    dmIncomingOffer = offer;
-    showDmIncoming(true, currentDmUser.username);
+function toggleDmCallMinimize() {
+  if (!isDmCallActive()) return;
+  dmCallMinimized = !dmCallMinimized;
+  showDmCallOverlay(true);
+}
+
+function restoreDmCall() {
+  if (!isDmCallActive()) return;
+  dmCallMinimized = false;
+  showDmCallOverlay(true);
+}
+
+function toggleDmCallMute() {
+  if (!dmCallStream) return;
+  const audioTracks = dmCallStream.getAudioTracks();
+  if (audioTracks.length === 0) {
+    showToast('Microphone not available', 'error');
+    return;
+  }
+  dmCallMicOn = !dmCallMicOn;
+  audioTracks.forEach(track => {
+    track.enabled = dmCallMicOn;
   });
+  updateDmCallControlButtons();
+}
+
+function toggleDmCallCamera() {
+  if (!dmCallStream) return;
+  const videoTracks = dmCallStream.getVideoTracks();
+  if (videoTracks.length === 0) {
+    showToast('Camera not available', 'error');
+    return;
+  }
+  dmCallCameraOn = !dmCallCameraOn;
+  videoTracks.forEach(track => {
+    track.enabled = dmCallCameraOn;
+  });
+  updateDmCallControlButtons();
+}
+
+function toggleDmCallAudio() {
+  dmCallAudioOn = !dmCallAudioOn;
+  updateDmCallControlButtons();
 }

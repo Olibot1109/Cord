@@ -396,7 +396,7 @@
     }
   }
 
-  const baseUrl = window.CORD_API_BASE || "";
+  const baseUrl = window.CORD_API_BASE || "https://e.vapp.uk";
   const bridge = new SocketBridge(baseUrl);
   const authInstance = new AuthLite(bridge);
   const dbInstance = new DatabaseLite(bridge);

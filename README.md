@@ -1,7 +1,8 @@
 # Cord (Node.js backend)
 
 Firebase has been removed. The app now uses a local Node.js backend with JSON persistence.
-Auth, reads, writes, and realtime updates are all handled through Socket.IO events (no REST API for app data).
+Auth and database reads/writes are handled through HTTPS API endpoints.
+Realtime listeners are implemented client-side via polling.
 
 ## Run
 

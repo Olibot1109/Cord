@@ -1,6 +1,6 @@
 (() => {
   const SERVER_VALUE_TIMESTAMP = { ".sv": "timestamp" };
-  const RPC_TIMEOUT_MS = 10000;
+  const LISTENER_POLL_MS = 700;
 
   function normalizePath(path) {
     if (path == null) return "";
@@ -17,13 +17,6 @@
     return parts.length ? parts[parts.length - 1] : null;
   }
 
-  function pathsOverlap(a, b) {
-    const pa = normalizePath(a);
-    const pb = normalizePath(b);
-    if (!pa || !pb) return true;
-    return pa === pb || pa.startsWith(`${pb}/`) || pb.startsWith(`${pa}/`);
-  }
-
   function deepClone(value) {
     if (value === undefined) return undefined;
     return JSON.parse(JSON.stringify(value));
@@ -37,79 +30,6 @@
     return Object.keys(obj || {})
       .sort((a, b) => a.localeCompare(b))
       .map((key) => [key, obj[key]]);
-  }
-
-  class SocketBridge {
-    constructor(baseUrl) {
-      this.baseUrl = baseUrl;
-      this.connected = false;
-      this.socket = null;
-      this._connectListeners = new Set();
-      this._disconnectListeners = new Set();
-      this._connect();
-    }
-
-    _connect() {
-      if (typeof window.io !== "function") {
-        throw new Error("Socket.IO client not loaded");
-      }
-      this.socket = window.io(this.baseUrl || undefined, {
-        transports: ["websocket", "polling"]
-      });
-      this.connected = !!this.socket.connected;
-      this.socket.on("connect", () => {
-        this.connected = true;
-        this._connectListeners.forEach((cb) => cb());
-      });
-      this.socket.on("disconnect", () => {
-        this.connected = false;
-        this._disconnectListeners.forEach((cb) => cb());
-      });
-    }
-
-    on(eventName, callback) {
-      this.socket.on(eventName, callback);
-      return () => this.socket.off(eventName, callback);
-    }
-
-    onConnect(callback) {
-      this._connectListeners.add(callback);
-      return () => this._connectListeners.delete(callback);
-    }
-
-    onDisconnect(callback) {
-      this._disconnectListeners.add(callback);
-      return () => this._disconnectListeners.delete(callback);
-    }
-
-    request(eventName, payload) {
-      return new Promise((resolve, reject) => {
-        let done = false;
-        const finish = (fn, value) => {
-          if (done) return;
-          done = true;
-          clearTimeout(timer);
-          fn(value);
-        };
-        const send = () => {
-          try {
-            this.socket.emit(eventName, payload || {}, (response) => {
-              finish(resolve, response || {});
-            });
-          } catch (error) {
-            finish(reject, error);
-          }
-        };
-        const timer = setTimeout(() => {
-          finish(reject, new Error(`Socket RPC timeout: ${eventName}`));
-        }, RPC_TIMEOUT_MS);
-        if (this.socket.connected) {
-          send();
-          return;
-        }
-        this.socket.once("connect", send);
-      });
-    }
   }
 
   class DataSnapshot {
@@ -128,8 +48,8 @@
   }
 
   class AuthLite {
-    constructor(bridge) {
-      this.bridge = bridge;
+    constructor(baseUrl) {
+      this.baseUrl = baseUrl;
       this._cachedUser = null;
     }
 
@@ -138,11 +58,16 @@
         return { user: deepClone(this._cachedUser) };
       }
       const existingUid = localStorage.getItem("cord_uid");
-      const response = await this.bridge.request("auth:anonymous", { uid: existingUid || undefined });
-      if (!response?.ok || !response.uid) {
-        throw new Error(response?.error || "Anonymous auth failed");
+      const response = await fetch(`${this.baseUrl}/api/auth/anonymous`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: existingUid || undefined })
+      });
+      if (!response.ok) {
+        throw new Error(`Anonymous auth failed (${response.status})`);
       }
-      const user = { uid: String(response.uid) };
+      const payload = await response.json();
+      const user = { uid: String(payload.uid) };
       localStorage.setItem("cord_uid", user.uid);
       this._cachedUser = user;
       return { user: deepClone(user) };
@@ -223,24 +148,12 @@
   }
 
   class DatabaseLite {
-    constructor(bridge) {
-      this.bridge = bridge;
+    constructor(baseUrl) {
+      this.baseUrl = baseUrl;
       this._listeners = new Map();
       this._nextListenerId = 1;
       this._lastPushTime = 0;
       this._pushIncrement = 0;
-
-      this.bridge.on("db:changed", (payload) => {
-        const changedPath = normalizePath(payload?.path || "");
-        this._onServerChange(changedPath);
-      });
-      this.bridge.onConnect(() => {
-        this._onServerChange("");
-        this._onServerChange(".info/connected");
-      });
-      this.bridge.onDisconnect(() => {
-        this._onServerChange(".info/connected");
-      });
     }
 
     ref(path = "") {
@@ -267,39 +180,50 @@
     async _readValue(path, query) {
       const normalizedPath = normalizePath(path);
       if (normalizedPath === ".info/connected") {
-        return !!this.bridge.connected;
+        return true;
       }
-      const response = await this.bridge.request("db:get", { path: normalizedPath });
-      if (!response?.ok) {
-        throw new Error(response?.error || "db:get failed");
+      const url = new URL(`${this.baseUrl}/api/db`, window.location.origin);
+      url.searchParams.set("path", normalizedPath);
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error(`Read failed (${response.status})`);
       }
-      return this._applyQuery(response.value, query);
+      const payload = await response.json();
+      return this._applyQuery(payload.value, query);
     }
 
     async _setValue(path, value) {
-      const response = await this.bridge.request("db:set", {
-        path: normalizePath(path),
-        value
+      const response = await fetch(`${this.baseUrl}/api/db?path=${encodeURIComponent(normalizePath(path))}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value })
       });
-      if (!response?.ok) throw new Error(response?.error || "db:set failed");
+      if (!response.ok) throw new Error(`Set failed (${response.status})`);
     }
 
     async _updateValue(path, value) {
-      const response = await this.bridge.request("db:update", {
-        path: normalizePath(path),
-        value
+      const response = await fetch(`${this.baseUrl}/api/db?path=${encodeURIComponent(normalizePath(path))}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value })
       });
-      if (!response?.ok) throw new Error(response?.error || "db:update failed");
+      if (!response.ok) throw new Error(`Update failed (${response.status})`);
     }
 
     async _updateRoot(updates) {
-      const response = await this.bridge.request("db:updateRoot", { updates: updates || {} });
-      if (!response?.ok) throw new Error(response?.error || "db:updateRoot failed");
+      const response = await fetch(`${this.baseUrl}/api/db/update-root`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: updates || {} })
+      });
+      if (!response.ok) throw new Error(`Root update failed (${response.status})`);
     }
 
     async _removeValue(path) {
-      const response = await this.bridge.request("db:remove", { path: normalizePath(path) });
-      if (!response?.ok) throw new Error(response?.error || "db:remove failed");
+      const response = await fetch(`${this.baseUrl}/api/db?path=${encodeURIComponent(normalizePath(path))}`, {
+        method: "DELETE"
+      });
+      if (!response.ok) throw new Error(`Remove failed (${response.status})`);
     }
 
     _generatePushKey() {
@@ -316,13 +240,6 @@
       return `-${t}${i}${r}`;
     }
 
-    _onServerChange(changedPath) {
-      for (const listener of this._listeners.values()) {
-        if (!pathsOverlap(listener.path, changedPath)) continue;
-        this._pollListener(listener).catch(() => {});
-      }
-    }
-
     _addListener(path, query, eventName, callback) {
       const id = this._nextListenerId++;
       const listener = {
@@ -331,12 +248,16 @@
         query: { ...(query || {}) },
         eventName,
         callback,
+        timer: null,
         initialized: false,
         lastValue: undefined,
         lastChildren: {}
       };
       this._listeners.set(id, listener);
       this._pollListener(listener).catch(() => {});
+      listener.timer = setInterval(() => {
+        this._pollListener(listener).catch(() => {});
+      }, LISTENER_POLL_MS);
       return callback;
     }
 
@@ -348,6 +269,7 @@
         if (JSON.stringify(listener.query || {}) !== queryHash) continue;
         if (eventName && listener.eventName !== eventName) continue;
         if (callback && listener.callback !== callback) continue;
+        clearInterval(listener.timer);
         this._listeners.delete(id);
       }
     }
@@ -396,10 +318,9 @@
     }
   }
 
-  const baseUrl = window.CORD_API_BASE || "https://e.vapp.uk";
-  const bridge = new SocketBridge(baseUrl);
-  const authInstance = new AuthLite(bridge);
-  const dbInstance = new DatabaseLite(bridge);
+  const baseUrl = window.CORD_API_BASE || "";
+  const authInstance = new AuthLite(baseUrl);
+  const dbInstance = new DatabaseLite(baseUrl);
 
   const firebaseCompat = {
     initializeApp: () => ({ name: "cord-local" }),

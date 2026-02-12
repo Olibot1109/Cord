@@ -3,7 +3,6 @@ const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
 const crypto = require("crypto");
-const { Server: SocketServer } = require("socket.io");
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
@@ -25,9 +24,7 @@ const MIME_TYPES = {
 
 let db = {};
 let saveTimer = null;
-let io = null;
 let requestCounter = 0;
-let socketRpcCounter = 0;
 const COLORS_ENABLED = process.stdout.isTTY && process.env.NO_COLOR !== "1";
 const LOG_LEVEL = String(process.env.LOG_LEVEL || "info").toLowerCase();
 const LOG_LEVEL_WEIGHT = {
@@ -107,43 +104,6 @@ function flushSaveSync(reason = "manual") {
   }
 }
 
-function withRpcLogging(socket, eventName, handler) {
-  socket.on(eventName, async (payload, ack) => {
-    const rpcId = ++socketRpcCounter;
-    const start = Date.now();
-    log("debug", "socket.rpc.start", {
-      rpcId,
-      socketId: socket.id,
-      event: eventName,
-      payload: payloadSummary(payload)
-    });
-    try {
-      const result = await handler(payload);
-      const response = result && typeof result === "object" ? result : { ok: true };
-      if (typeof ack === "function") ack(response);
-      log(response.ok === false ? "warn" : "info", "socket.rpc.finish", {
-        rpcId,
-        socketId: socket.id,
-        event: eventName,
-        ok: response.ok !== false,
-        durationMs: Date.now() - start,
-        response: payloadSummary(response)
-      });
-    } catch (error) {
-      const response = { ok: false, error: error?.message || "RPC error" };
-      if (typeof ack === "function") ack(response);
-      log("error", "socket.rpc.error", {
-        rpcId,
-        socketId: socket.id,
-        event: eventName,
-        durationMs: Date.now() - start,
-        error: error?.message || String(error),
-        stack: error?.stack || null
-      });
-    }
-  });
-}
-
 function payloadSummary(value) {
   if (value === null) return { type: "null" };
   if (value === undefined) return { type: "undefined" };
@@ -206,7 +166,6 @@ function setByPath(inputPath, value) {
     db = resolveServerValue(value) ?? {};
     log("warn", "db.set.root", { path: "", summary: payloadSummary(value) });
     scheduleSave();
-    emitDbChanged("");
     return;
   }
   let node = db;
@@ -220,7 +179,6 @@ function setByPath(inputPath, value) {
   node[parts[parts.length - 1]] = resolveServerValue(value);
   log("info", "db.set", { path: normalized, summary: payloadSummary(value) });
   scheduleSave();
-  emitDbChanged(normalized);
 }
 
 function deleteByPath(inputPath) {
@@ -230,7 +188,6 @@ function deleteByPath(inputPath) {
     db = {};
     log("warn", "db.remove.root", { path: "" });
     scheduleSave();
-    emitDbChanged("");
     return;
   }
   let node = db;
@@ -243,7 +200,6 @@ function deleteByPath(inputPath) {
     delete node[parts[parts.length - 1]];
     log("info", "db.remove", { path: normalized });
     scheduleSave();
-    emitDbChanged(normalized);
   }
 }
 
@@ -269,16 +225,6 @@ function updateRoot(updates) {
       return;
     }
     setByPath(key, value);
-  });
-}
-
-function emitDbChanged(changedPath) {
-  if (!io) return;
-  const normalizedPath = normalizePath(changedPath);
-  log("info", "socket.broadcast.db_changed", { path: normalizedPath, connectedClients: io.engine.clientsCount });
-  io.emit("db:changed", {
-    path: normalizedPath,
-    at: Date.now()
   });
 }
 
@@ -319,6 +265,97 @@ function loadData() {
   }
 }
 
+function decodeJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function respondJson(res, statusCode, payload) {
+  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(payload));
+}
+
+async function handleApi(req, res, reqUrl, requestId) {
+  if (req.method === "POST" && reqUrl.pathname === "/api/auth/anonymous") {
+    const body = await decodeJsonBody(req).catch(() => ({}));
+    const uid = body.uid && typeof body.uid === "string" && body.uid.trim()
+      ? body.uid
+      : `u_${crypto.randomUUID().replace(/-/g, "")}`;
+    log("info", "api.auth.anonymous", { requestId, reusedUid: !!(body.uid && String(body.uid).trim()), uid });
+    respondJson(res, 200, { uid });
+    return true;
+  }
+
+  if (req.method === "GET" && reqUrl.pathname === "/api/db") {
+    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
+    log("debug", "api.db.get", { requestId, path: targetPath });
+    respondJson(res, 200, { value: getByPath(targetPath) });
+    return true;
+  }
+
+  if (req.method === "PUT" && reqUrl.pathname === "/api/db") {
+    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
+    const body = await decodeJsonBody(req).catch(() => null);
+    if (!body || !Object.prototype.hasOwnProperty.call(body, "value")) {
+      respondJson(res, 400, { error: "Missing value" });
+      return true;
+    }
+    log("debug", "api.db.set", { requestId, path: targetPath, summary: payloadSummary(body.value) });
+    setByPath(targetPath, body.value);
+    respondJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === "PATCH" && reqUrl.pathname === "/api/db") {
+    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
+    const body = await decodeJsonBody(req).catch(() => null);
+    if (!body || typeof body.value !== "object" || body.value == null || Array.isArray(body.value)) {
+      respondJson(res, 400, { error: "PATCH expects object value" });
+      return true;
+    }
+    log("debug", "api.db.update", { requestId, path: targetPath, summary: payloadSummary(body.value) });
+    updateByPath(targetPath, body.value);
+    respondJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === "DELETE" && reqUrl.pathname === "/api/db") {
+    const targetPath = normalizePath(reqUrl.searchParams.get("path") || "");
+    log("debug", "api.db.remove", { requestId, path: targetPath });
+    deleteByPath(targetPath);
+    respondJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === "POST" && reqUrl.pathname === "/api/db/update-root") {
+    const body = await decodeJsonBody(req).catch(() => null);
+    if (!body || typeof body.updates !== "object" || body.updates == null) {
+      respondJson(res, 400, { error: "Missing updates" });
+      return true;
+    }
+    log("warn", "api.db.updateRoot", { requestId, pathCount: Object.keys(body.updates).length });
+    updateRoot(body.updates);
+    respondJson(res, 200, { ok: true });
+    return true;
+  }
+
+  return false;
+}
+
 async function requestHandler(req, res) {
   const requestId = ++requestCounter;
   const start = Date.now();
@@ -330,6 +367,14 @@ async function requestHandler(req, res) {
       path: reqUrl.pathname,
       userAgent: req.headers["user-agent"] || null
     });
+
+    if (reqUrl.pathname.startsWith("/api/")) {
+      const handled = await handleApi(req, res, reqUrl, requestId);
+      if (!handled) {
+        respondJson(res, 404, { error: "Not found" });
+      }
+      return;
+    }
 
     const filePath = sanitizeStaticPath(reqUrl.pathname);
     if (!filePath.startsWith(ROOT_DIR)) {
@@ -377,83 +422,6 @@ async function requestHandler(req, res) {
 loadData();
 
 const server = http.createServer(requestHandler);
-io = new SocketServer(server, {
-  cors: { origin: "*" }
-});
-
-io.on("connection", (socket) => {
-  const remoteAddress = socket.handshake?.address || null;
-  log("info", "socket.connected", { socketId: socket.id, remoteAddress, connectedClients: io.engine.clientsCount });
-
-  socket.on("disconnect", (reason) => {
-    log("info", "socket.disconnected", { socketId: socket.id, reason, connectedClients: io.engine.clientsCount });
-  });
-
-  socket.on("error", (error) => {
-    log("error", "socket.error", { socketId: socket.id, error: error?.message || String(error) });
-  });
-
-  withRpcLogging(socket, "auth:anonymous", (payload) => {
-    const uid = payload && typeof payload.uid === "string" && payload.uid.trim()
-      ? payload.uid
-      : `u_${crypto.randomUUID().replace(/-/g, "")}`;
-    log("debug", "socket.auth.anonymous", {
-      socketId: socket.id,
-      reusedUid: !!(payload && typeof payload.uid === "string" && payload.uid.trim()),
-      issuedUid: uid
-    });
-    return { ok: true, uid };
-  });
-
-  withRpcLogging(socket, "db:get", (payload) => {
-    const targetPath = normalizePath(payload?.path || "");
-    log("debug", "socket.db.get", { socketId: socket.id, path: targetPath });
-    return { ok: true, value: getByPath(targetPath) };
-  });
-
-  withRpcLogging(socket, "db:set", (payload) => {
-    if (!payload || !Object.prototype.hasOwnProperty.call(payload, "value")) {
-      log("warn", "socket.db.set.invalid_payload", { socketId: socket.id, summary: payloadSummary(payload) });
-      return { ok: false, error: "Missing value" };
-    }
-    log("debug", "socket.db.set", { socketId: socket.id, path: normalizePath(payload.path || ""), summary: payloadSummary(payload.value) });
-    setByPath(payload.path || "", payload.value);
-    return { ok: true };
-  });
-
-  withRpcLogging(socket, "db:update", (payload) => {
-    if (!payload || typeof payload.value !== "object" || payload.value == null || Array.isArray(payload.value)) {
-      log("warn", "socket.db.update.invalid_payload", { socketId: socket.id, summary: payloadSummary(payload) });
-      return { ok: false, error: "PATCH expects object value" };
-    }
-    log("debug", "socket.db.update", { socketId: socket.id, path: normalizePath(payload.path || ""), summary: payloadSummary(payload.value) });
-    updateByPath(payload.path || "", payload.value);
-    return { ok: true };
-  });
-
-  withRpcLogging(socket, "db:remove", (payload) => {
-    log("debug", "socket.db.remove", { socketId: socket.id, path: normalizePath(payload?.path || "") });
-    deleteByPath(payload?.path || "");
-    return { ok: true };
-  });
-
-  withRpcLogging(socket, "db:updateRoot", (payload) => {
-    if (!payload || typeof payload.updates !== "object" || payload.updates == null) {
-      log("warn", "socket.db.updateRoot.invalid_payload", { socketId: socket.id, summary: payloadSummary(payload) });
-      return { ok: false, error: "Missing updates" };
-    }
-    log("debug", "socket.db.updateRoot", {
-      socketId: socket.id,
-      pathCount: Object.keys(payload.updates).length,
-      paths: Object.keys(payload.updates).slice(0, 50)
-    });
-    updateRoot(payload.updates);
-    return { ok: true };
-  });
-
-  log("info", "socket.initial_sync", { socketId: socket.id });
-  socket.emit("db:changed", { path: "", at: Date.now() });
-});
 
 server.listen(PORT, HOST, () => {
   log("info", "server.started", {
@@ -481,13 +449,8 @@ process.on("unhandledRejection", (reason) => {
 });
 
 function shutdown(signal) {
-  log("warn", "process.shutdown.begin", { signal, connectedClients: io?.engine?.clientsCount ?? 0 });
+  log("warn", "process.shutdown.begin", { signal });
   flushSaveSync(`signal:${signal}`);
-  try {
-    io?.close();
-  } catch (error) {
-    log("error", "process.shutdown.io_close_failed", { signal, error: error.message });
-  }
   server.close((error) => {
     if (error) {
       log("error", "process.shutdown.server_close_failed", { signal, error: error.message });

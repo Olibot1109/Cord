@@ -189,6 +189,139 @@ function showToast(message, type = 'info') {
   setTimeout(() => toast.remove(), 3000);
 }
 
+let imageViewerScale = 1;
+let imageViewerTranslateX = 0;
+let imageViewerTranslateY = 0;
+let imageViewerDragging = false;
+let imageViewerDragStartX = 0;
+let imageViewerDragStartY = 0;
+let imageViewerKeyHandlerAttached = false;
+
+function getImageViewerElements() {
+  const overlay = document.getElementById('imageViewerOverlay');
+  if (!overlay) return null;
+  return {
+    overlay,
+    viewport: document.getElementById('imageViewerViewport'),
+    image: document.getElementById('imageViewerImage')
+  };
+}
+
+function applyImageViewerTransform() {
+  const refs = getImageViewerElements();
+  if (!refs || !refs.image) return;
+  refs.image.style.transform = `translate(${imageViewerTranslateX}px, ${imageViewerTranslateY}px) scale(${imageViewerScale})`;
+}
+
+function setImageViewerScale(nextScale) {
+  imageViewerScale = Math.max(1, Math.min(6, nextScale));
+  if (imageViewerScale <= 1) {
+    imageViewerTranslateX = 0;
+    imageViewerTranslateY = 0;
+  }
+  applyImageViewerTransform();
+}
+
+function closeImageViewer() {
+  const refs = getImageViewerElements();
+  if (!refs) return;
+  refs.overlay.classList.remove('active');
+  document.body.classList.remove('image-viewer-open');
+  imageViewerDragging = false;
+}
+
+function ensureImageViewer() {
+  let refs = getImageViewerElements();
+  if (refs) return refs;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'imageViewerOverlay';
+  overlay.className = 'image-viewer-overlay';
+  overlay.innerHTML = `
+    <div class="image-viewer-toolbar">
+      <button class="image-viewer-btn" id="imageViewerZoomOut" title="Zoom out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+      <button class="image-viewer-btn" id="imageViewerZoomIn" title="Zoom in"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+      <button class="image-viewer-btn" id="imageViewerReset" title="Reset zoom"><i class="fa-solid fa-arrows-rotate"></i></button>
+      <button class="image-viewer-btn close" id="imageViewerClose" title="Close"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="image-viewer-viewport" id="imageViewerViewport">
+      <img id="imageViewerImage" class="image-viewer-image" alt="">
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  refs = getImageViewerElements();
+  if (!refs || !refs.viewport || !refs.image) return null;
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeImageViewer();
+  });
+
+  const zoomInBtn = document.getElementById('imageViewerZoomIn');
+  const zoomOutBtn = document.getElementById('imageViewerZoomOut');
+  const resetBtn = document.getElementById('imageViewerReset');
+  const closeBtn = document.getElementById('imageViewerClose');
+
+  if (zoomInBtn) zoomInBtn.addEventListener('click', () => setImageViewerScale(imageViewerScale + 0.2));
+  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => setImageViewerScale(imageViewerScale - 0.2));
+  if (resetBtn) resetBtn.addEventListener('click', () => setImageViewerScale(1));
+  if (closeBtn) closeBtn.addEventListener('click', closeImageViewer);
+
+  refs.viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const step = e.deltaY < 0 ? 0.12 : -0.12;
+    setImageViewerScale(imageViewerScale + step);
+  }, { passive: false });
+
+  refs.image.addEventListener('mousedown', (e) => {
+    if (imageViewerScale <= 1) return;
+    imageViewerDragging = true;
+    imageViewerDragStartX = e.clientX - imageViewerTranslateX;
+    imageViewerDragStartY = e.clientY - imageViewerTranslateY;
+    refs.image.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!imageViewerDragging || imageViewerScale <= 1) return;
+    imageViewerTranslateX = e.clientX - imageViewerDragStartX;
+    imageViewerTranslateY = e.clientY - imageViewerDragStartY;
+    applyImageViewerTransform();
+  });
+
+  window.addEventListener('mouseup', () => {
+    imageViewerDragging = false;
+    if (refs && refs.image) refs.image.classList.remove('dragging');
+  });
+
+  if (!imageViewerKeyHandlerAttached) {
+    document.addEventListener('keydown', (e) => {
+      const active = document.getElementById('imageViewerOverlay')?.classList.contains('active');
+      if (!active) return;
+      if (e.key === 'Escape') closeImageViewer();
+      if (e.key === '+' || e.key === '=') setImageViewerScale(imageViewerScale + 0.2);
+      if (e.key === '-') setImageViewerScale(imageViewerScale - 0.2);
+      if (e.key === '0') setImageViewerScale(1);
+    });
+    imageViewerKeyHandlerAttached = true;
+  }
+
+  return refs;
+}
+
+function openImageViewer(src) {
+  if (!src) return;
+  const refs = ensureImageViewer();
+  if (!refs || !refs.image || !refs.overlay) return;
+  imageViewerScale = 1;
+  imageViewerTranslateX = 0;
+  imageViewerTranslateY = 0;
+  refs.image.src = src;
+  applyImageViewerTransform();
+  refs.overlay.classList.add('active');
+  document.body.classList.add('image-viewer-open');
+}
+
 // Reactions
 const QUICK_REACTIONS = ['👍', '😂', '❤️', '😮', '😢', '🎉'];
 const EMOJI_SETS = {
@@ -326,12 +459,11 @@ function escapeHtml(text) {
 
 function startPresenceUpdates() {
   setInterval(() => {
-    if (currentUser && currentServer) {
-      db.ref(`servers/${currentServer}/members/${currentUser.uid}`).update({
-        status: userProfile.status,
-        lastSeen: Date.now()
-      });
-    }
+    if (!currentUser) return;
+    db.ref(`profiles/${currentUser.uid}`).update({
+      status: userProfile.status,
+      lastSeen: Date.now()
+    });
   }, 30000);
 }
 

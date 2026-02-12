@@ -56,6 +56,17 @@ let rolesListRef = null;
 let rolesCache = {};
 let presenceListenerSet = false;
 
+function resolveUserServersFromMembership() {
+  if (!currentUser) return Promise.resolve([]);
+
+  return db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    return Object.entries(servers)
+      .filter(([, data]) => data?.members && data.members[currentUser.uid])
+      .map(([serverId]) => serverId);
+  });
+}
+
 // DOM Elements
 const elements = {
   serverList: document.getElementById('serverList'),
@@ -100,9 +111,9 @@ const LIMITS = {
 };
 
 const DEFAULT_ROLE_PERMISSIONS = {
-  Admin: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone'],
-  Moderator: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone'],
-  Member: ['send_messages', 'view_channels']
+  Admin: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'],
+  Moderator: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'],
+  Member: ['send_messages', 'view_channels', 'use_commands']
 };
 
 // Initialize
@@ -118,8 +129,14 @@ document.addEventListener('DOMContentLoaded', () => {
     userProfile.uid = currentUser.uid;
     saveCookies();
     updateProfileData();
+    if (typeof startMentionWatcher === 'function') {
+      startMentionWatcher();
+    }
     setupMentionNotifications();
     ensurePresenceConnectionListener();
+    if (typeof startDuplicateServerCleanup === 'function') {
+      startDuplicateServerCleanup();
+    }
     
     console.log('[Auth] User signed in successfully:', {
       uid: currentUser.uid,
@@ -133,42 +150,52 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Check and clean up any existing voice channel presence on sign in
-    if (userServers.length > 0) {
-      console.log('[Auth] Checking for existing voice channel presence in', userServers.length, 'servers');
-      userServers.forEach(serverId => {
-        db.ref(`servers/${serverId}/voiceChannels`).once('value')
-          .then(snapshot => {
-            const voiceChannels = snapshot.val() || {};
-            Object.keys(voiceChannels).forEach(channelName => {
-              db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).once('value')
-                .then(userSnap => {
-                  if (userSnap.exists()) {
-                    console.log('[Auth] Found existing voice channel presence in server', serverId, 'channel', channelName);
-                    db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).remove()
-                      .then(() => {
-                        console.log('[Auth] Cleaned up existing voice channel presence');
-                      })
-                      .catch(error => {
-                        console.error('[Auth] Error cleaning up voice channel presence:', error);
-                      });
-                  }
-                });
-            });
-          });
-      });
-    }
+    resolveUserServersFromMembership().then(serverIds => {
+      userServers = serverIds;
+      console.log('[Auth] Loaded server membership:', userServers.length, 'servers');
 
-    if (userServers.length === 0) {
-      isOnboarding = true;
-      currentServer = null;
-      setCookie('lastServer', '', -1);
-      showModal('welcome');
-    } else {
+      // Check and clean up any existing voice channel presence on sign in
+      if (userServers.length > 0) {
+        console.log('[Auth] Checking for existing voice channel presence in', userServers.length, 'servers');
+        userServers.forEach(serverId => {
+          db.ref(`servers/${serverId}/voiceChannels`).once('value')
+            .then(snapshot => {
+              const voiceChannels = snapshot.val() || {};
+              Object.keys(voiceChannels).forEach(channelName => {
+                db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).once('value')
+                  .then(userSnap => {
+                    if (userSnap.exists()) {
+                      console.log('[Auth] Found existing voice channel presence in server', serverId, 'channel', channelName);
+                      db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).remove()
+                        .then(() => {
+                          console.log('[Auth] Cleaned up existing voice channel presence');
+                        })
+                        .catch(error => {
+                          console.error('[Auth] Error cleaning up voice channel presence:', error);
+                        });
+                    }
+                  });
+              });
+            });
+        });
+      }
+
+      if (userServers.length === 0) {
+        isOnboarding = true;
+        currentServer = null;
+        setCookie('lastServer', '', -1);
+        showModal('welcome');
+        return;
+      }
+
       isOnboarding = false;
-      currentServer = getCookie('lastServer') || userServers[0];
+      const lastServer = getCookie('lastServer');
+      currentServer = lastServer && userServers.includes(lastServer) ? lastServer : userServers[0];
       initializeApp();
-    }
+    }).catch(error => {
+      console.error('[Auth] Failed to load server membership:', error);
+      showToast('Failed to load servers: ' + error.message, 'error');
+    });
   }).catch(error => {
     console.error('[Auth] Authentication failed:', error);
     showToast('Authentication failed: ' + error.message, 'error');
@@ -216,15 +243,6 @@ function loadCookies() {
     } catch (e) { }
   }
 
-  const servers = getCookie('userServers');
-  if (servers) {
-    try {
-      userServers = JSON.parse(servers);
-    } catch (e) {
-      userServers = [];
-    }
-  }
-
   const lastChannels = getCookie('lastChannelsByServer');
   if (lastChannels) {
     try {
@@ -239,9 +257,10 @@ function loadCookies() {
 
 function saveCookies() {
   setCookie('userProfile', JSON.stringify(userProfile), 365);
-  setCookie('userServers', JSON.stringify(userServers), 365);
   setCookie('lastChannelsByServer', JSON.stringify(lastChannelsByServer), 365);
   if (currentServer) setCookie('lastServer', currentServer, 365);
+  // Clear legacy cookie so server membership is sourced from Firebase only.
+  setCookie('userServers', '', -1);
 }
 
 function getCookie(name) {
@@ -368,8 +387,9 @@ function setupEventListeners() {
   // Before unload
   window.addEventListener('beforeunload', () => {
     if (currentUser) {
-      userServers.forEach(serverId => {
-        db.ref(`servers/${serverId}/members/${currentUser.uid}/status`).set('offline');
+      db.ref(`profiles/${currentUser.uid}`).update({
+        status: 'offline',
+        lastSeen: Date.now()
       });
       if (inVoiceChannel && currentServer) {
         db.ref(`servers/${currentServer}/voiceChannels_data/${inVoiceChannel}/users/${currentUser.uid}`).remove();
@@ -410,18 +430,16 @@ function setupMentionNotifications() {
 
 function refreshPresenceForServers() {
   if (!currentUser) return;
-  (userServers || []).forEach(serverId => {
-    const memberRef = db.ref(`servers/${serverId}/members/${currentUser.uid}`);
-    if (memberRef.child('status').onDisconnect) {
-      memberRef.child('status').onDisconnect().set('offline');
-    }
-    if (memberRef.child('lastSeen').onDisconnect) {
-      memberRef.child('lastSeen').onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
-    }
-    memberRef.update({
-      status: userProfile.status,
-      lastSeen: Date.now()
-    });
+  const profileRef = db.ref(`profiles/${currentUser.uid}`);
+  if (profileRef.child('status').onDisconnect) {
+    profileRef.child('status').onDisconnect().set('offline');
+  }
+  if (profileRef.child('lastSeen').onDisconnect) {
+    profileRef.child('lastSeen').onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
+  }
+  profileRef.update({
+    status: userProfile.status,
+    lastSeen: Date.now()
   });
 }
 

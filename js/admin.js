@@ -30,31 +30,47 @@ function saveServerSettings() {
     updates['systemChannel'] = systemChannel;
   }
 
-  if (iconFile) {
-    compressImageFile(iconFile, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
-      .then(dataUrl => {
-        updates['icon'] = dataUrl;
-        return db.ref(`servers/${currentServer}`).update(updates);
-      })
-      .then(() => {
+  const applyUpdates = () => {
+    if (iconFile) {
+      compressImageFile(iconFile, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
+        .then(dataUrl => {
+          updates['icon'] = dataUrl;
+          return db.ref(`servers/${currentServer}`).update(updates);
+        })
+        .then(() => {
+          elements.serverName.textContent = newName || elements.serverName.textContent;
+          loadUserServers();
+          hideModal('serverSettings');
+          showToast('Server settings saved', 'success');
+          serverIconInput.value = '';
+          document.getElementById('serverSettingsIconLabel').textContent = 'Click to upload server icon';
+        })
+        .catch(err => {
+          showToast('Failed to update server icon: ' + err.message, 'error');
+        });
+    } else {
+      db.ref(`servers/${currentServer}`).update(updates).then(() => {
         elements.serverName.textContent = newName || elements.serverName.textContent;
         loadUserServers();
         hideModal('serverSettings');
         showToast('Server settings saved', 'success');
-        serverIconInput.value = '';
-        document.getElementById('serverSettingsIconLabel').textContent = 'Click to upload server icon';
-      })
-      .catch(err => {
-        showToast('Failed to update server icon: ' + err.message, 'error');
       });
-  } else {
-    db.ref(`servers/${currentServer}`).update(updates).then(() => {
-      elements.serverName.textContent = newName || elements.serverName.textContent;
-      loadUserServers();
-      hideModal('serverSettings');
-      showToast('Server settings saved', 'success');
-    });
-  }
+    }
+  };
+
+  const nameCheck = newName && typeof isServerNameTaken === 'function'
+    ? isServerNameTaken(newName, currentServer)
+    : Promise.resolve(false);
+
+  nameCheck.then(taken => {
+    if (taken) {
+      showToast('A server with that name already exists', 'error');
+      return;
+    }
+    applyUpdates();
+  }).catch(err => {
+    showToast('Failed to validate server name: ' + err.message, 'error');
+  });
 }
 
 function setupServerSettingsModal() {
@@ -107,9 +123,9 @@ function loadRoles() {
   rolesListRef = db.ref(`servers/${currentServer}/roles`);
   rolesListRef.on('value', (snap) => {
       const roles = snap.val() || {
-        Admin: { permissions: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone'], color: '#f23f43', hoist: true },
-        Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone'], color: '#5865f2', hoist: true },
-        Member: { permissions: ['send_messages', 'view_channels'], color: '#949ba4', hoist: false }
+        Admin: { permissions: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'], color: '#f23f43', hoist: true },
+        Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'], color: '#5865f2', hoist: true },
+        Member: { permissions: ['send_messages', 'view_channels', 'use_commands'], color: '#949ba4', hoist: false }
       };
 
     // Load join role select
@@ -196,7 +212,8 @@ function selectRoleForEdit(roleName, roleData, roleElement) {
     permManageRoles: 'manage_roles',
     permSendMessages: 'send_messages',
     permViewChannels: 'view_channels',
-    permMentionEveryone: 'mention_everyone'
+    permMentionEveryone: 'mention_everyone',
+    permUseCommands: 'use_commands'
   };
   const rolePerms = roleData.permissions || [];
   Object.entries(permissionCheckboxMap).forEach(([checkboxId, perm]) => {
@@ -230,12 +247,19 @@ function clearEditRole() {
   document.getElementById('editRoleColorPreview').style.backgroundColor = '#5865f2';
   document.getElementById('editRoleColorPreview').textContent = '#5865f2';
 
-  const permissions = ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone', 'hoist'];
-  permissions.forEach(perm => {
-    const checkbox = document.getElementById(`perm${perm.charAt(0).toUpperCase() + perm.slice(1)}`);
-    if (checkbox) {
-      checkbox.checked = false;
-    }
+  [
+    'permManageServer',
+    'permManageChannels',
+    'permManageMessages',
+    'permManageRoles',
+    'permSendMessages',
+    'permViewChannels',
+    'permMentionEveryone',
+    'permUseCommands',
+    'permHoist'
+  ].forEach(checkboxId => {
+    const checkbox = document.getElementById(checkboxId);
+    if (checkbox) checkbox.checked = false;
   });
 
   document.getElementById('deleteRoleBtn').style.display = 'none';
@@ -266,7 +290,7 @@ function createNewRole() {
     }
 
     const newRole = {
-      permissions: ['send_messages', 'view_channels'],
+      permissions: ['send_messages', 'view_channels', 'use_commands'],
       color: roleColor,
       hoist: false
     };
@@ -306,7 +330,8 @@ function saveEditRole() {
     permManageRoles: 'manage_roles',
     permSendMessages: 'send_messages',
     permViewChannels: 'view_channels',
-    permMentionEveryone: 'mention_everyone'
+    permMentionEveryone: 'mention_everyone',
+    permUseCommands: 'use_commands'
   };
   Object.entries(permissionCheckboxMap).forEach(([checkboxId, perm]) => {
     const checkbox = document.getElementById(checkboxId);
@@ -456,55 +481,10 @@ function setJoinRole() {
 // Override joinServer to use join role
 function joinServer() {
   const joinCodeInput = document.getElementById('joinCodeInput');
-  const code = joinCodeInput ? joinCodeInput.value.trim().toUpperCase() : '';
-  
-  if (!code) {
-    showToast('Please enter an invite code', 'error');
+  const code = joinCodeInput ? joinCodeInput.value : '';
+  if (typeof joinServerByInviteCode === 'function') {
+    joinServerByInviteCode(code, { closeInviteModal: true, clearInput: true });
     return;
   }
-
-  db.ref('servers').once('value').then(snapshot => {
-    const servers = snapshot.val() || {};
-    let foundServer = null;
-
-    Object.entries(servers).forEach(([id, data]) => {
-      if (data.invite === code) foundServer = id;
-    });
-
-    if (!foundServer) {
-      showToast('Invalid invite code', 'error');
-      return;
-    }
-
-    if (userServers.includes(foundServer)) {
-      showToast('You are already in this server', 'error');
-      return;
-    }
-
-    // Get join role for this server
-    db.ref(`servers/${foundServer}/joinRole`).once('value').then(joinRoleSnap => {
-      const joinRole = joinRoleSnap.val() || 'Member';
-
-      db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: joinRole,
-        status: 'online',
-        joinedAt: Date.now()
-      });
-
-      // Send join message
-      sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
-
-      userServers.push(foundServer);
-      saveCookies();
-      loadUserServers();
-      selectServer(foundServer);
-      hideModal('invite');
-      isOnboarding = false;
-      forceJoinModal = false;
-      
-      if (joinCodeInput) joinCodeInput.value = '';
-      showToast('Successfully joined server!', 'success');
-    });
-  });
+  showToast('Invite join is temporarily unavailable', 'error');
 }

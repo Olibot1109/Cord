@@ -1,3 +1,107 @@
+let mentionListenerRef = null;
+let mentionUnreadByServer = {};
+let mentionUnreadByChannel = {};
+
+function getMentionChannelKey(serverId, channelName) {
+  return `${serverId}::${channelName}`;
+}
+
+function formatMentionCount(count) {
+  const safe = Number(count) || 0;
+  if (safe <= 0) return '';
+  if (safe > 99) return '99+';
+  return String(safe);
+}
+
+function refreshMentionBadges() {
+  // Server badges
+  document.querySelectorAll('.server-icon[data-server]').forEach(serverEl => {
+    const serverId = serverEl.getAttribute('data-server');
+    const count = mentionUnreadByServer[serverId] || 0;
+    let badge = serverEl.querySelector('.server-mention-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'server-mention-badge';
+        serverEl.appendChild(badge);
+      }
+      badge.textContent = formatMentionCount(count);
+    } else if (badge) {
+      badge.remove();
+    }
+  });
+
+  // Channel badges (current server text channels only)
+  if (currentServer) {
+    document.querySelectorAll('.channel-item[data-channel][data-channel-type="text"]').forEach(channelEl => {
+      const channelName = channelEl.getAttribute('data-channel');
+      const key = getMentionChannelKey(currentServer, channelName);
+      const count = mentionUnreadByChannel[key] || 0;
+      let badge = channelEl.querySelector('.channel-mention-badge');
+      if (count > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'channel-mention-badge';
+          channelEl.appendChild(badge);
+        }
+        badge.textContent = formatMentionCount(count);
+      } else if (badge) {
+        badge.remove();
+      }
+    });
+  }
+}
+
+function startMentionWatcher() {
+  if (!currentUser) return;
+  if (mentionListenerRef) {
+    mentionListenerRef.off();
+    mentionListenerRef = null;
+  }
+
+  mentionListenerRef = db.ref(`mentions/${currentUser.uid}`);
+  mentionListenerRef.on('value', (snapshot) => {
+    const root = snapshot.val() || {};
+    const nextServerCounts = {};
+    const nextChannelCounts = {};
+
+    Object.entries(root).forEach(([serverId, channels]) => {
+      let serverCount = 0;
+      Object.entries(channels || {}).forEach(([channelName, messages]) => {
+        const count = Object.keys(messages || {}).length;
+        if (count <= 0) return;
+        serverCount += count;
+        nextChannelCounts[getMentionChannelKey(serverId, channelName)] = count;
+      });
+      if (serverCount > 0) {
+        nextServerCounts[serverId] = serverCount;
+      }
+    });
+
+    mentionUnreadByServer = nextServerCounts;
+    mentionUnreadByChannel = nextChannelCounts;
+    refreshMentionBadges();
+  });
+}
+
+function markChannelMentionsRead(serverId, channelName) {
+  if (!currentUser || !serverId || !channelName) return;
+  const key = getMentionChannelKey(serverId, channelName);
+  const channelCount = mentionUnreadByChannel[key] || 0;
+  if (channelCount <= 0) return;
+
+  delete mentionUnreadByChannel[key];
+  mentionUnreadByServer[serverId] = Math.max(0, (mentionUnreadByServer[serverId] || 0) - channelCount);
+  if (mentionUnreadByServer[serverId] <= 0) {
+    delete mentionUnreadByServer[serverId];
+  }
+  refreshMentionBadges();
+
+  db.ref(`mentions/${currentUser.uid}/${serverId}/${channelName}`).remove().catch((error) => {
+    console.error('[Mentions] Failed to mark channel read:', error);
+  });
+}
+
 // Server Management
 function loadUserServers() {
   elements.serverList.innerHTML = `
@@ -41,6 +145,7 @@ function loadUserServers() {
         } else {
           div.innerHTML = `<span>${(serverData.name || 'S').charAt(0).toUpperCase()}</span>`;
         }
+        refreshMentionBadges();
       });
     });
   }
@@ -55,6 +160,7 @@ function loadUserServers() {
   if (typeof refreshPresenceForServers === 'function') {
     refreshPresenceForServers();
   }
+  refreshMentionBadges();
 }
 
 function goDiscovery() {
@@ -175,7 +281,6 @@ function selectServer(serverId) {
           db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
             username: userProfile.username,
             role: 'Member',
-            status: 'online',
             joinedAt: Date.now()
           });
         } else {
@@ -585,6 +690,22 @@ function findUserByUsername(username) {
   });
 }
 
+function isServerNameTaken(name, excludeServerId = null) {
+  const normalizedName = (name || '').trim().toLowerCase();
+  if (!normalizedName) return Promise.resolve(false);
+
+  return db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    return Object.entries(servers).some(([serverId, data]) => {
+      if (excludeServerId && serverId === excludeServerId) return false;
+      const existingName = data && typeof data.name === 'string'
+        ? data.name.trim().toLowerCase()
+        : '';
+      return existingName === normalizedName;
+    });
+  });
+}
+
 function createServer() {
   const serverNameInput = document.getElementById('serverNameInput');
   const name = serverNameInput ? serverNameInput.value.trim() : '';
@@ -602,70 +723,78 @@ function createServer() {
     return;
   }
 
-  const serverId = 'server_' + Date.now();
-  const serverIconInput = document.getElementById('serverIconInput');
-  const file = serverIconInput ? serverIconInput.files[0] : null;
+  isServerNameTaken(name).then(taken => {
+    if (taken) {
+      showToast('A server with that name already exists', 'error');
+      return;
+    }
 
-  const finalizeCreation = (iconUrl = null) => {
-    const serverData = {
-      name: name,
-      icon: iconUrl,
-      description: '',
-      createdAt: Date.now(),
-      invite: generateInviteCode(),
-      ownerId: currentUser.uid,
-      systemChannel: 'general',
-      discoverable: false,
-      roles: {
-        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels'], color: '#f23f43', hoist: true },
-        Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels'], color: '#5865f2', hoist: true },
-        Member: { permissions: ['send_messages', 'view_channels'], color: '#949ba4', hoist: false }
-      }
+    const serverId = 'server_' + Date.now();
+    const serverIconInput = document.getElementById('serverIconInput');
+    const file = serverIconInput ? serverIconInput.files[0] : null;
+
+    const finalizeCreation = (iconUrl = null) => {
+      const serverData = {
+        name: name,
+        icon: iconUrl,
+        description: '',
+        createdAt: Date.now(),
+        invite: generateInviteCode(),
+        ownerId: currentUser.uid,
+        systemChannel: 'general',
+        discoverable: false,
+        roles: {
+          Admin: { permissions: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'], color: '#f23f43', hoist: true },
+          Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'], color: '#5865f2', hoist: true },
+          Member: { permissions: ['send_messages', 'view_channels', 'use_commands'], color: '#949ba4', hoist: false }
+        }
+      };
+
+      db.ref(`servers/${serverId}`).set(serverData).then(() => {
+        // Create default channels
+        db.ref(`servers/${serverId}/channels/general`).set(true);
+        db.ref(`servers/${serverId}/channels/welcome`).set(true);
+
+        // Create default voice channel
+        db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
+
+        // Add creator as admin (owner still gets crown + full perms)
+        db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+          username: userProfile.username,
+          role: 'Admin',
+          joinedAt: Date.now()
+        });
+
+        // Add welcome message
+        sendSystemMessage(serverId, `Welcome to ${name}! This is the beginning of the server.`);
+
+        userServers.push(serverId);
+        saveCookies();
+        loadUserServers();
+        selectServer(serverId);
+        hideModal('addServer');
+        isOnboarding = false;
+        forceJoinModal = false;
+        
+        if (serverNameInput) serverNameInput.value = '';
+        if (serverIconInput) serverIconInput.value = '';
+        const serverIconLabel = document.getElementById('serverIconLabel');
+        if (serverIconLabel) serverIconLabel.textContent = 'Click to upload server icon';
+        
+        showToast('Server created successfully!', 'success');
+      });
     };
 
-    db.ref(`servers/${serverId}`).set(serverData).then(() => {
-      // Create default channels
-      db.ref(`servers/${serverId}/channels/general`).set(true);
-      db.ref(`servers/${serverId}/channels/welcome`).set(true);
-
-      // Create default voice channel
-      db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
-
-      // Add creator as admin (owner still gets crown + full perms)
-      db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: 'Admin',
-        status: 'online',
-        joinedAt: Date.now()
-      });
-
-      // Add welcome message
-      sendSystemMessage(serverId, `Welcome to ${name}! This is the beginning of the server.`);
-
-      userServers.push(serverId);
-      saveCookies();
-      loadUserServers();
-      selectServer(serverId);
-      hideModal('addServer');
-      isOnboarding = false;
-      forceJoinModal = false;
-      
-      if (serverNameInput) serverNameInput.value = '';
-      if (serverIconInput) serverIconInput.value = '';
-      const serverIconLabel = document.getElementById('serverIconLabel');
-      if (serverIconLabel) serverIconLabel.textContent = 'Click to upload server icon';
-      
-      showToast('Server created successfully!', 'success');
-    });
-  };
-
-  if (file) {
-    compressImageFile(file, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
-      .then(dataUrl => finalizeCreation(dataUrl))
-      .catch(() => finalizeCreation());
-  } else {
-    finalizeCreation();
-  }
+    if (file) {
+      compressImageFile(file, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
+        .then(dataUrl => finalizeCreation(dataUrl))
+        .catch(() => finalizeCreation());
+    } else {
+      finalizeCreation();
+    }
+  }).catch(err => {
+    showToast('Failed to validate server name: ' + err.message, 'error');
+  });
 }
 
 function sendSystemMessage(serverId, text) {
@@ -684,56 +813,83 @@ function sendSystemMessage(serverId, text) {
   });
 }
 
-function joinServer() {
-  const joinCodeInput = document.getElementById('joinCodeInput');
-  const code = joinCodeInput ? joinCodeInput.value.trim().toUpperCase() : '';
-  
-  if (!code) {
+function normalizeInviteCode(code) {
+  return String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function joinServerByInviteCode(code, options = {}) {
+  const normalizedCode = normalizeInviteCode(code);
+  const closeInviteModal = options.closeInviteModal !== false;
+  const clearInput = options.clearInput !== false;
+
+  if (!normalizedCode) {
     showToast('Please enter an invite code', 'error');
-    return;
+    return Promise.resolve(false);
+  }
+  if (!currentUser) {
+    showToast('You must be signed in to join a server', 'error');
+    return Promise.resolve(false);
   }
   if (userServers.length >= 10) {
     showToast('Server limit reached (10)', 'error');
-    return;
+    return Promise.resolve(false);
   }
 
-  db.ref('servers').once('value').then(snapshot => {
+  return db.ref('servers').once('value').then(snapshot => {
     const servers = snapshot.val() || {};
     let foundServer = null;
 
     Object.entries(servers).forEach(([id, data]) => {
-      if (data.invite === code) foundServer = id;
+      if (foundServer) return;
+      const invite = normalizeInviteCode(data?.invite);
+      if (invite && invite === normalizedCode) foundServer = id;
     });
 
     if (!foundServer) {
       showToast('Invalid invite code', 'error');
-      return;
+      return false;
     }
 
     if (userServers.includes(foundServer)) {
-      showToast('You are already in this server', 'error');
-      return;
+      showToast('You are already in this server', 'info');
+      selectServer(foundServer);
+      return false;
     }
 
-    db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-      username: userProfile.username,
-      role: 'Member',
-      status: 'online',
-      joinedAt: Date.now()
+    return db.ref(`servers/${foundServer}/joinRole`).once('value').then(joinRoleSnap => {
+      const joinRole = joinRoleSnap.val() || 'Member';
+      return db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
+        username: userProfile.username,
+        role: joinRole,
+        joinedAt: Date.now()
+      }).then(() => {
+        sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
+
+        userServers.push(foundServer);
+        saveCookies();
+        loadUserServers();
+        selectServer(foundServer);
+        if (closeInviteModal) hideModal('invite');
+        if (clearInput) {
+          const joinCodeInput = document.getElementById('joinCodeInput');
+          if (joinCodeInput) joinCodeInput.value = '';
+        }
+        isOnboarding = false;
+        forceJoinModal = false;
+        showToast('Successfully joined server!', 'success');
+        return true;
+      });
     });
-
-    // Send join message
-    sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
-
-    userServers.push(foundServer);
-    saveCookies();
-    loadUserServers();
-    selectServer(foundServer);
-    hideModal('invite');
-    
-    if (joinCodeInput) joinCodeInput.value = '';
-    showToast('Successfully joined server!', 'success');
+  }).catch(error => {
+    showToast('Failed to join server: ' + error.message, 'error');
+    return false;
   });
+}
+
+function joinServer() {
+  const joinCodeInput = document.getElementById('joinCodeInput');
+  const code = joinCodeInput ? joinCodeInput.value : '';
+  joinServerByInviteCode(code, { closeInviteModal: true, clearInput: true });
 }
 
 function joinServerById(serverId) {
@@ -764,7 +920,6 @@ function joinServerById(serverId) {
       db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
         username: userProfile.username,
         role: joinRole,
-        status: 'online',
         joinedAt: Date.now()
       });
       sendSystemMessage(serverId, `${userProfile.username} joined the server.`);
@@ -797,7 +952,6 @@ function joinOfficialServer() {
       db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
         username: userProfile.username,
         role: 'Member',
-        status: 'online',
         joinedAt: Date.now()
       });
 

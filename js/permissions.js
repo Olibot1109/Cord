@@ -61,9 +61,9 @@ function loadChannelPermissions() {
   // Load roles from server
   db.ref(`servers/${currentServer}/roles`).once('value').then(rolesSnap => {
     const roles = rolesSnap.val() || {
-      Admin: { permissions: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone'], color: '#f23f43', hoist: true },
-      Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone'], color: '#5865f2', hoist: true },
-      Member: { permissions: ['send_messages', 'view_channels'], color: '#949ba4', hoist: false }
+      Admin: { permissions: ['manage_server', 'manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'], color: '#f23f43', hoist: true },
+      Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels', 'mention_everyone', 'use_commands'], color: '#5865f2', hoist: true },
+      Member: { permissions: ['send_messages', 'view_channels', 'use_commands'], color: '#949ba4', hoist: false }
     };
 
     // Load channel permissions

@@ -84,7 +84,9 @@ function getMemberProfile(uid) {
     const data = {
       username: profile.username || 'Unknown',
       avatar: profile.avatar || null,
-      bio: profile.bio || ''
+      bio: profile.bio || '',
+      status: profile.status || 'offline',
+      lastSeen: profile.lastSeen || 0
     };
     memberProfileCache[uid] = data;
     delete memberProfilePromises[uid];
@@ -99,11 +101,14 @@ function getMemberProfile(uid) {
 }
 
 function updateMemberData() {
-  if (!currentServer) return;
-  db.ref(`servers/${currentServer}/members/${currentUser.uid}`).update({
-    username: userProfile.username,
-    status: userProfile.status,
-    bio: userProfile.bio || ''
+  if (!currentUser) return;
+  const targetServers = new Set(userServers || []);
+  if (currentServer) targetServers.add(currentServer);
+
+  targetServers.forEach(serverId => {
+    db.ref(`servers/${serverId}/members/${currentUser.uid}`).update({
+      username: userProfile.username
+    });
   });
   updateProfileData();
 }
@@ -113,8 +118,9 @@ function updateProfileData() {
   db.ref(`profiles/${currentUser.uid}`).update({
     username: userProfile.username,
     avatar: userProfile.avatar,
+    bio: userProfile.bio || '',
     status: userProfile.status,
-    bio: userProfile.bio || ''
+    lastSeen: Date.now()
   });
   db.ref(`users/${currentUser.uid}`).set(userProfile.username);
 }
@@ -168,6 +174,9 @@ function loadMemberList() {
         `;
 
         membersList.forEach(member => {
+          const cachedProfile = memberProfileCache[member.uid];
+          member.status = cachedProfile?.status || member.status || 'offline';
+          member.lastSeen = cachedProfile?.lastSeen || member.lastSeen || 0;
           const isOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
           const statusClass = !isOnline ? 'offline' : (member.status === 'idle' ? 'idle' : member.status === 'dnd' ? 'dnd' : '');
 
@@ -191,6 +200,7 @@ function loadMemberList() {
             const existingDiv = document.querySelector(`[data-uid="${member.uid}"]`);
             if (existingDiv) {
               const statusText = existingDiv.querySelector('.member-status-text');
+              const statusDot = existingDiv.querySelector('.member-status');
             if (statusText) {
               if (voiceChannelName) {
                 let statusIndicator = 'Voice';
@@ -198,9 +208,15 @@ function loadMemberList() {
                 if (isDeafened) statusIndicator = 'Deafened';
                 statusText.textContent = `${statusIndicator}: ${voiceChannelName}`;
               } else {
-                statusText.textContent = isOnline ? 'Connect to VC' : 'offline';
+                const currentlyOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
+                statusText.textContent = currentlyOnline ? 'Connect to VC' : 'offline';
               }
             }
+              if (statusDot) {
+                const currentlyOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
+                const dotClass = !currentlyOnline ? 'offline' : (member.status === 'idle' ? 'idle' : member.status === 'dnd' ? 'dnd' : '');
+                statusDot.className = `member-status ${dotClass}`;
+              }
             }
           });
 
@@ -235,6 +251,8 @@ function loadMemberList() {
           
           getMemberProfile(member.uid).then(profile => {
             if (!profile) return;
+            member.status = profile.status || member.status || 'offline';
+            member.lastSeen = profile.lastSeen || member.lastSeen || 0;
             const avatarEl = memberDiv.querySelector(`[data-avatar-for="${member.uid}"]`);
             if (avatarEl && profile.avatar) {
               avatarEl.innerHTML = `<img src="${profile.avatar}">`;
@@ -249,6 +267,19 @@ function loadMemberList() {
               bioEl.textContent = profile.bio;
               bioEl.style.display = 'block';
               member.bio = profile.bio;
+            }
+
+            const statusDot = memberDiv.querySelector('.member-status');
+            if (statusDot) {
+              const profileOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
+              const dotClass = !profileOnline ? 'offline' : (member.status === 'idle' ? 'idle' : member.status === 'dnd' ? 'dnd' : '');
+              statusDot.className = `member-status ${dotClass}`;
+            }
+
+            const statusText = memberDiv.querySelector('.member-status-text');
+            if (statusText && !/^(Voice|Muted|Deafened):/.test(statusText.textContent || '')) {
+              const profileOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
+              statusText.textContent = profileOnline ? 'Connect to VC' : 'offline';
             }
           });
           
@@ -289,6 +320,8 @@ function loadMemberList() {
 
           getMemberProfile(member.uid).then(profile => {
             if (!profile) return;
+            member.status = profile.status || member.status || 'offline';
+            member.lastSeen = profile.lastSeen || member.lastSeen || 0;
             const avatarEl = memberDiv.querySelector(`[data-avatar-for="${member.uid}"]`);
             if (avatarEl && profile.avatar) {
               avatarEl.innerHTML = `<img src="${profile.avatar}">`;
@@ -297,6 +330,19 @@ function loadMemberList() {
             if (nameEl && profile.username && profile.username !== member.username) {
               nameEl.textContent = profile.username;
               member.username = profile.username;
+            }
+
+            const statusDot = memberDiv.querySelector('.member-status');
+            if (statusDot) {
+              const profileOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
+              const dotClass = !profileOnline ? 'offline' : (member.status === 'idle' ? 'idle' : member.status === 'dnd' ? 'dnd' : '');
+              statusDot.className = `member-status ${dotClass}`;
+            }
+
+            const statusText = memberDiv.querySelector('.member-status-text');
+            if (statusText) {
+              const profileOnline = !!(member.lastSeen && Date.now() - member.lastSeen < 60000);
+              statusText.textContent = profileOnline ? 'Connect to VC' : 'offline';
             }
           });
         });

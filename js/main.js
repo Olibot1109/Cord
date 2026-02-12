@@ -54,6 +54,87 @@ let isOnboarding = false;
 let forceJoinModal = false;
 let rolesListRef = null;
 let rolesCache = {};
+let duplicateServerCleanupInterval = null;
+let duplicateServerCleanupRunning = false;
+
+function resolveUserServersFromMembership() {
+  if (!currentUser) return Promise.resolve([]);
+
+  return db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    return Object.entries(servers)
+      .filter(([, data]) => data?.members && data.members[currentUser.uid])
+      .map(([serverId]) => serverId);
+  });
+}
+
+function normalizeServerName(name) {
+  return typeof name === 'string' ? name.trim().toLowerCase() : '';
+}
+
+function getServerCreatedAt(serverData) {
+  const createdAt = Number(serverData?.createdAt);
+  return Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
+}
+
+function cleanupDuplicateServersByName() {
+  if (duplicateServerCleanupRunning) return;
+  duplicateServerCleanupRunning = true;
+
+  db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    const groupedByName = {};
+
+    Object.entries(servers).forEach(([serverId, serverData]) => {
+      const normalizedName = normalizeServerName(serverData?.name);
+      if (!normalizedName) return;
+      if (!groupedByName[normalizedName]) groupedByName[normalizedName] = [];
+      groupedByName[normalizedName].push({
+        id: serverId,
+        name: serverData.name,
+        createdAt: getServerCreatedAt(serverData)
+      });
+    });
+
+    const removals = [];
+    Object.values(groupedByName).forEach(group => {
+      if (group.length < 2) return;
+
+      group.sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+        return a.id.localeCompare(b.id);
+      });
+
+      const keep = group[0];
+      const duplicates = group.slice(1);
+
+      duplicates.forEach(duplicate => {
+        removals.push(
+          db.ref(`servers/${duplicate.id}`).remove()
+            .then(() => {
+              console.warn('[Server Cleanup] Removed duplicate server:', {
+                deletedServerId: duplicate.id,
+                keptServerId: keep.id,
+                name: keep.name
+              });
+            })
+        );
+      });
+    });
+
+    return Promise.allSettled(removals);
+  }).catch(error => {
+    console.error('[Server Cleanup] Failed duplicate cleanup:', error);
+  }).finally(() => {
+    duplicateServerCleanupRunning = false;
+  });
+}
+
+function startDuplicateServerCleanup() {
+  if (duplicateServerCleanupInterval) return;
+  cleanupDuplicateServersByName();
+  duplicateServerCleanupInterval = setInterval(cleanupDuplicateServersByName, 10000);
+}
 
 // DOM Elements
 const elements = {
@@ -115,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
     userProfile.uid = currentUser.uid;
     saveCookies();
     updateProfileData();
+    startDuplicateServerCleanup();
     
     console.log('[Auth] User signed in successfully:', {
       uid: currentUser.uid,
@@ -128,42 +210,52 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Check and clean up any existing voice channel presence on sign in
-    if (userServers.length > 0) {
-      console.log('[Auth] Checking for existing voice channel presence in', userServers.length, 'servers');
-      userServers.forEach(serverId => {
-        db.ref(`servers/${serverId}/voiceChannels`).once('value')
-          .then(snapshot => {
-            const voiceChannels = snapshot.val() || {};
-            Object.keys(voiceChannels).forEach(channelName => {
-              db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).once('value')
-                .then(userSnap => {
-                  if (userSnap.exists()) {
-                    console.log('[Auth] Found existing voice channel presence in server', serverId, 'channel', channelName);
-                    db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).remove()
-                      .then(() => {
-                        console.log('[Auth] Cleaned up existing voice channel presence');
-                      })
-                      .catch(error => {
-                        console.error('[Auth] Error cleaning up voice channel presence:', error);
-                      });
-                  }
-                });
-            });
-          });
-      });
-    }
+    resolveUserServersFromMembership().then(serverIds => {
+      userServers = serverIds;
+      console.log('[Auth] Loaded server membership:', userServers.length, 'servers');
 
-    if (userServers.length === 0) {
-      isOnboarding = true;
-      currentServer = null;
-      setCookie('lastServer', '', -1);
-      showModal('welcome');
-    } else {
+      // Check and clean up any existing voice channel presence on sign in
+      if (userServers.length > 0) {
+        console.log('[Auth] Checking for existing voice channel presence in', userServers.length, 'servers');
+        userServers.forEach(serverId => {
+          db.ref(`servers/${serverId}/voiceChannels`).once('value')
+            .then(snapshot => {
+              const voiceChannels = snapshot.val() || {};
+              Object.keys(voiceChannels).forEach(channelName => {
+                db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).once('value')
+                  .then(userSnap => {
+                    if (userSnap.exists()) {
+                      console.log('[Auth] Found existing voice channel presence in server', serverId, 'channel', channelName);
+                      db.ref(`servers/${serverId}/voiceChannels/${channelName}/users/${currentUser.uid}`).remove()
+                        .then(() => {
+                          console.log('[Auth] Cleaned up existing voice channel presence');
+                        })
+                        .catch(error => {
+                          console.error('[Auth] Error cleaning up voice channel presence:', error);
+                        });
+                    }
+                  });
+              });
+            });
+        });
+      }
+
+      if (userServers.length === 0) {
+        isOnboarding = true;
+        currentServer = null;
+        setCookie('lastServer', '', -1);
+        showModal('welcome');
+        return;
+      }
+
       isOnboarding = false;
-      currentServer = getCookie('lastServer') || userServers[0];
+      const lastServer = getCookie('lastServer');
+      currentServer = lastServer && userServers.includes(lastServer) ? lastServer : userServers[0];
       initializeApp();
-    }
+    }).catch(error => {
+      console.error('[Auth] Failed to load server membership:', error);
+      showToast('Failed to load servers: ' + error.message, 'error');
+    });
   }).catch(error => {
     console.error('[Auth] Authentication failed:', error);
     showToast('Authentication failed: ' + error.message, 'error');
@@ -211,15 +303,6 @@ function loadCookies() {
     } catch (e) { }
   }
 
-  const servers = getCookie('userServers');
-  if (servers) {
-    try {
-      userServers = JSON.parse(servers);
-    } catch (e) {
-      userServers = [];
-    }
-  }
-
   const lastChannels = getCookie('lastChannelsByServer');
   if (lastChannels) {
     try {
@@ -234,9 +317,10 @@ function loadCookies() {
 
 function saveCookies() {
   setCookie('userProfile', JSON.stringify(userProfile), 365);
-  setCookie('userServers', JSON.stringify(userServers), 365);
   setCookie('lastChannelsByServer', JSON.stringify(lastChannelsByServer), 365);
   if (currentServer) setCookie('lastServer', currentServer, 365);
+  // Clear legacy cookie so server membership is sourced from Firebase only.
+  setCookie('userServers', '', -1);
 }
 
 function getCookie(name) {
@@ -354,8 +438,9 @@ function setupEventListeners() {
   // Before unload
   window.addEventListener('beforeunload', () => {
     if (currentUser) {
-      userServers.forEach(serverId => {
-        db.ref(`servers/${serverId}/members/${currentUser.uid}/status`).set('offline');
+      db.ref(`profiles/${currentUser.uid}`).update({
+        status: 'offline',
+        lastSeen: Date.now()
       });
       if (inVoiceChannel && currentServer) {
         db.ref(`servers/${currentServer}/voiceChannels_data/${inVoiceChannel}/users/${currentUser.uid}`).remove();
@@ -563,7 +648,6 @@ function selectServer(serverId) {
             username: userProfile.username,
             role: 'Member',
             avatar: userProfile.avatar,
-            status: 'online',
             joinedAt: Date.now()
           });
         } else {
@@ -971,6 +1055,22 @@ function findUserByUsername(username) {
   });
 }
 
+function isServerNameTaken(name, excludeServerId = null) {
+  const normalizedName = (name || '').trim().toLowerCase();
+  if (!normalizedName) return Promise.resolve(false);
+
+  return db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    return Object.entries(servers).some(([serverId, data]) => {
+      if (excludeServerId && serverId === excludeServerId) return false;
+      const existingName = data && typeof data.name === 'string'
+        ? data.name.trim().toLowerCase()
+        : '';
+      return existingName === normalizedName;
+    });
+  });
+}
+
 function createServer() {
   const serverNameInput = document.getElementById('serverNameInput');
   const name = serverNameInput ? serverNameInput.value.trim() : '';
@@ -988,71 +1088,79 @@ function createServer() {
     return;
   }
 
-  const serverId = 'server_' + Date.now();
-  const serverIconInput = document.getElementById('serverIconInput');
-  const file = serverIconInput ? serverIconInput.files[0] : null;
+  isServerNameTaken(name).then(taken => {
+    if (taken) {
+      showToast('A server with that name already exists', 'error');
+      return;
+    }
 
-  const finalizeCreation = (iconUrl = null) => {
-    const serverData = {
-      name: name,
-      icon: iconUrl,
-      description: '',
-      createdAt: Date.now(),
-      invite: generateInviteCode(),
-      ownerId: currentUser.uid,
-      systemChannel: 'general',
-      discoverable: false,
-      roles: {
-        Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels'], color: '#f23f43', hoist: true },
-        Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels'], color: '#5865f2', hoist: true },
-        Member: { permissions: ['send_messages', 'view_channels'], color: '#949ba4', hoist: false }
-      }
+    const serverId = 'server_' + Date.now();
+    const serverIconInput = document.getElementById('serverIconInput');
+    const file = serverIconInput ? serverIconInput.files[0] : null;
+
+    const finalizeCreation = (iconUrl = null) => {
+      const serverData = {
+        name: name,
+        icon: iconUrl,
+        description: '',
+        createdAt: Date.now(),
+        invite: generateInviteCode(),
+        ownerId: currentUser.uid,
+        systemChannel: 'general',
+        discoverable: false,
+        roles: {
+          Admin: { permissions: ['manage_channels', 'manage_messages', 'manage_roles', 'send_messages', 'view_channels'], color: '#f23f43', hoist: true },
+          Moderator: { permissions: ['manage_messages', 'send_messages', 'view_channels'], color: '#5865f2', hoist: true },
+          Member: { permissions: ['send_messages', 'view_channels'], color: '#949ba4', hoist: false }
+        }
+      };
+
+      db.ref(`servers/${serverId}`).set(serverData).then(() => {
+        // Create default channels
+        db.ref(`servers/${serverId}/channels/general`).set(true);
+        db.ref(`servers/${serverId}/channels/welcome`).set(true);
+
+        // Create default voice channel
+        db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
+
+        // Add creator as admin (owner still gets crown + full perms)
+        db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+          username: userProfile.username,
+          role: 'Admin',
+          avatar: userProfile.avatar,
+          joinedAt: Date.now()
+        });
+
+        // Add welcome message
+        sendSystemMessage(serverId, `Welcome to ${name}! This is the beginning of the server.`);
+
+        userServers.push(serverId);
+        saveCookies();
+        loadUserServers();
+        selectServer(serverId);
+        hideModal('addServer');
+        isOnboarding = false;
+        forceJoinModal = false;
+        
+        if (serverNameInput) serverNameInput.value = '';
+        if (serverIconInput) serverIconInput.value = '';
+        const serverIconLabel = document.getElementById('serverIconLabel');
+        if (serverIconLabel) serverIconLabel.textContent = 'Click to upload server icon';
+        
+        showToast('Server created successfully!', 'success');
+      });
     };
 
-    db.ref(`servers/${serverId}`).set(serverData).then(() => {
-      // Create default channels
-      db.ref(`servers/${serverId}/channels/general`).set(true);
-      db.ref(`servers/${serverId}/channels/welcome`).set(true);
-
-      // Create default voice channel
-      db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
-
-      // Add creator as admin (owner still gets crown + full perms)
-      db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: 'Admin',
-        avatar: userProfile.avatar,
-        status: 'online',
-        joinedAt: Date.now()
-      });
-
-      // Add welcome message
-      sendSystemMessage(serverId, `Welcome to ${name}! This is the beginning of the server.`);
-
-      userServers.push(serverId);
-      saveCookies();
-      loadUserServers();
-      selectServer(serverId);
-      hideModal('addServer');
-      isOnboarding = false;
-      forceJoinModal = false;
-      
-      if (serverNameInput) serverNameInput.value = '';
-      if (serverIconInput) serverIconInput.value = '';
-      const serverIconLabel = document.getElementById('serverIconLabel');
-      if (serverIconLabel) serverIconLabel.textContent = 'Click to upload server icon';
-      
-      showToast('Server created successfully!', 'success');
-    });
-  };
-
-  if (file) {
-    compressImageFile(file, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
-      .then(dataUrl => finalizeCreation(dataUrl))
-      .catch(() => finalizeCreation());
-  } else {
-    finalizeCreation();
-  }
+    if (file) {
+      compressImageFile(file, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
+        .then(dataUrl => finalizeCreation(dataUrl))
+        .catch(() => finalizeCreation());
+    } else {
+      finalizeCreation();
+    }
+  }).catch(err => {
+    showToast('Failed to validate server name: ' + err.message, 'error');
+  });
 }
 
 function sendSystemMessage(serverId, text) {
@@ -1071,57 +1179,84 @@ function sendSystemMessage(serverId, text) {
   });
 }
 
-function joinServer() {
-  const joinCodeInput = document.getElementById('joinCodeInput');
-  const code = joinCodeInput ? joinCodeInput.value.trim().toUpperCase() : '';
-  
-  if (!code) {
+function normalizeInviteCode(code) {
+  return String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function joinServerByInviteCode(code, options = {}) {
+  const normalizedCode = normalizeInviteCode(code);
+  const closeInviteModal = options.closeInviteModal !== false;
+  const clearInput = options.clearInput !== false;
+
+  if (!normalizedCode) {
     showToast('Please enter an invite code', 'error');
-    return;
+    return Promise.resolve(false);
+  }
+  if (!currentUser) {
+    showToast('You must be signed in to join a server', 'error');
+    return Promise.resolve(false);
   }
   if (userServers.length >= 10) {
     showToast('Server limit reached (10)', 'error');
-    return;
+    return Promise.resolve(false);
   }
 
-  db.ref('servers').once('value').then(snapshot => {
+  return db.ref('servers').once('value').then(snapshot => {
     const servers = snapshot.val() || {};
     let foundServer = null;
 
     Object.entries(servers).forEach(([id, data]) => {
-      if (data.invite === code) foundServer = id;
+      if (foundServer) return;
+      const invite = normalizeInviteCode(data?.invite);
+      if (invite && invite === normalizedCode) foundServer = id;
     });
 
     if (!foundServer) {
       showToast('Invalid invite code', 'error');
-      return;
+      return false;
     }
 
     if (userServers.includes(foundServer)) {
-      showToast('You are already in this server', 'error');
-      return;
+      showToast('You are already in this server', 'info');
+      selectServer(foundServer);
+      return false;
     }
 
-    db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-      username: userProfile.username,
-      role: 'Member',
-      avatar: userProfile.avatar,
-      status: 'online',
-      joinedAt: Date.now()
+    return db.ref(`servers/${foundServer}/joinRole`).once('value').then(joinRoleSnap => {
+      const joinRole = joinRoleSnap.val() || 'Member';
+      return db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
+        username: userProfile.username,
+        role: joinRole,
+        avatar: userProfile.avatar,
+        joinedAt: Date.now()
+      }).then(() => {
+        sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
+
+        userServers.push(foundServer);
+        saveCookies();
+        loadUserServers();
+        selectServer(foundServer);
+        if (closeInviteModal) hideModal('invite');
+        if (clearInput) {
+          const joinCodeInput = document.getElementById('joinCodeInput');
+          if (joinCodeInput) joinCodeInput.value = '';
+        }
+        isOnboarding = false;
+        forceJoinModal = false;
+        showToast('Successfully joined server!', 'success');
+        return true;
+      });
     });
-
-    // Send join message
-    sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
-
-    userServers.push(foundServer);
-    saveCookies();
-    loadUserServers();
-    selectServer(foundServer);
-    hideModal('invite');
-    
-    if (joinCodeInput) joinCodeInput.value = '';
-    showToast('Successfully joined server!', 'success');
+  }).catch(error => {
+    showToast('Failed to join server: ' + error.message, 'error');
+    return false;
   });
+}
+
+function joinServer() {
+  const joinCodeInput = document.getElementById('joinCodeInput');
+  const code = joinCodeInput ? joinCodeInput.value : '';
+  joinServerByInviteCode(code, { closeInviteModal: true, clearInput: true });
 }
 
 function joinServerById(serverId) {
@@ -1153,7 +1288,6 @@ function joinServerById(serverId) {
         username: userProfile.username,
         role: joinRole,
         avatar: userProfile.avatar,
-        status: 'online',
         joinedAt: Date.now()
       });
       sendSystemMessage(serverId, `${userProfile.username} joined the server.`);
@@ -1187,7 +1321,6 @@ function joinOfficialServer() {
         username: userProfile.username,
         role: 'Member',
         avatar: userProfile.avatar,
-        status: 'online',
         joinedAt: Date.now()
       });
 
@@ -1557,6 +1690,358 @@ function openLastTextChannel() {
 }
 
 // Messaging
+const messageEmbedCache = {};
+const messageEmbedPromises = {};
+
+function trimUrlCandidate(url) {
+  if (!url) return '';
+  let trimmed = url;
+  while (/[.,!?;:]$/.test(trimmed)) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  while (trimmed.endsWith(')')) {
+    const open = (trimmed.match(/\(/g) || []).length;
+    const close = (trimmed.match(/\)/g) || []).length;
+    if (close <= open) break;
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
+function extractFirstMessageUrl(text) {
+  if (!text) return null;
+  const match = text.match(/https?:\/\/[^\s<>"']+/i);
+  if (!match) return null;
+  const cleaned = trimUrlCandidate(match[0]);
+  return cleaned || null;
+}
+
+function extractInviteCodeFromText(text) {
+  if (!text) return null;
+  const trimmed = text.trim();
+
+  if (/^[A-Za-z0-9]{4,16}$/.test(trimmed)) {
+    return normalizeInviteCode(trimmed);
+  }
+
+  const labeled = trimmed.match(/invite(?:\s*code)?[:\s-]+([A-Za-z0-9]{4,16})/i);
+  if (labeled && labeled[1]) {
+    return normalizeInviteCode(labeled[1]);
+  }
+
+  return null;
+}
+
+function formatMessageTextWithLinks(text) {
+  if (!text) return '';
+  const urlRegex = /https?:\/\/[^\s<>"']+/gi;
+  let result = '';
+  let lastIndex = 0;
+  let match;
+
+  while ((match = urlRegex.exec(text)) !== null) {
+    const start = match.index;
+    const raw = match[0];
+    const cleaned = trimUrlCandidate(raw);
+
+    result += escapeHtml(text.slice(lastIndex, start));
+    if (cleaned) {
+      const trailing = raw.slice(cleaned.length);
+      const safeUrl = escapeHtml(cleaned);
+      result += `<a class="message-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a>`;
+      if (trailing) result += escapeHtml(trailing);
+    } else {
+      result += escapeHtml(raw);
+    }
+
+    lastIndex = start + raw.length;
+  }
+
+  result += escapeHtml(text.slice(lastIndex));
+  return result;
+}
+
+function fetchEmbedData(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    return Promise.resolve(null);
+  }
+
+  const cleanUrl = parsed.href;
+  const inviteCode = extractInviteCodeFromUrl(cleanUrl);
+  if (inviteCode) {
+    return fetchInviteEmbedData(cleanUrl, inviteCode);
+  }
+
+  const fallback = {
+    url: cleanUrl,
+    title: parsed.hostname.replace(/^www\./, ''),
+    description: parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '',
+    provider: parsed.hostname.replace(/^www\./, ''),
+    thumbnail: ''
+  };
+
+  return fetch(`https://noembed.com/embed?nowrap=on&maxwidth=640&url=${encodeURIComponent(cleanUrl)}`)
+    .then(response => response.ok ? response.json() : null)
+    .then(data => {
+      if (!data || data.error) return fallback;
+      return {
+        url: cleanUrl,
+        title: data.title || fallback.title,
+        description: data.author_name ? `by ${data.author_name}` : (data.description || fallback.description || ''),
+        provider: data.provider_name || fallback.provider,
+        thumbnail: data.thumbnail_url || ''
+      };
+    })
+    .catch(() => fallback);
+}
+
+function extractInviteCodeFromUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    return null;
+  }
+
+  const fromInviteParam = normalizeInviteCode(parsed.searchParams.get('invite'));
+  if (fromInviteParam.length >= 4) return fromInviteParam;
+
+  const fromCodeParam = normalizeInviteCode(parsed.searchParams.get('code'));
+  if (fromCodeParam.length >= 4 && /invite|join/i.test(parsed.pathname)) return fromCodeParam;
+
+  const parts = parsed.pathname.split('/').filter(Boolean).map(p => p.trim());
+  for (let i = 0; i < parts.length; i++) {
+    if (/^(invite|invites|join)$/i.test(parts[i]) && parts[i + 1]) {
+      const candidate = normalizeInviteCode(parts[i + 1]);
+      if (candidate.length >= 4) return candidate;
+    }
+  }
+
+  return null;
+}
+
+function fetchInviteEmbedData(url, inviteCode) {
+  return db.ref('servers').once('value').then(snapshot => {
+    const servers = snapshot.val() || {};
+    let foundServerId = null;
+    let foundServer = null;
+
+    Object.entries(servers).forEach(([serverId, serverData]) => {
+      if (foundServerId) return;
+      const code = normalizeInviteCode(serverData?.invite);
+      if (code && code === inviteCode) {
+        foundServerId = serverId;
+        foundServer = serverData || {};
+      }
+    });
+
+    if (!foundServerId || !foundServer) {
+      return {
+        type: 'server-invite',
+        valid: false,
+        url,
+        inviteCode,
+        title: 'Invalid Server Invite',
+        description: 'This invite is invalid or expired.',
+        provider: 'Server Invite',
+        thumbnail: '',
+        memberCount: 0
+      };
+    }
+
+    const members = foundServer.members || {};
+    const memberCount = Object.keys(members).length;
+
+    return {
+      type: 'server-invite',
+      valid: true,
+      url,
+      inviteCode,
+      serverId: foundServerId,
+      title: foundServer.name || 'Unnamed Server',
+      description: foundServer.description || 'No description',
+      provider: 'Server Invite',
+      thumbnail: foundServer.icon || '',
+      memberCount,
+      alreadyMember: !!(members[currentUser?.uid] || userServers.includes(foundServerId))
+    };
+  }).catch(() => {
+    return {
+      type: 'server-invite',
+      valid: false,
+      url,
+      inviteCode,
+      title: 'Server Invite',
+      description: 'Unable to load invite right now.',
+      provider: 'Server Invite',
+      thumbnail: '',
+      memberCount: 0
+    };
+  });
+}
+
+function getEmbedData(url) {
+  if (!url) return Promise.resolve(null);
+  if (messageEmbedCache[url]) return Promise.resolve(messageEmbedCache[url]);
+  if (messageEmbedPromises[url]) return messageEmbedPromises[url];
+
+  const promise = fetchEmbedData(url).then(data => {
+    if (data) messageEmbedCache[url] = data;
+    delete messageEmbedPromises[url];
+    return data;
+  }).catch(() => {
+    delete messageEmbedPromises[url];
+    return null;
+  });
+
+  messageEmbedPromises[url] = promise;
+  return promise;
+}
+
+function buildEmbedMarkup(embed) {
+  if (!embed || !embed.url) return '';
+
+  if (embed.type === 'server-invite') {
+    const safeTitle = escapeHtml(embed.title || 'Server Invite');
+    const safeDescription = escapeHtml(embed.description || '');
+    const safeCode = escapeHtml(embed.inviteCode || '');
+    const safeMembers = Number.isFinite(embed.memberCount) ? embed.memberCount : 0;
+    const memberLabel = safeMembers === 1 ? '1 member' : `${safeMembers} members`;
+    const safeMemberLabel = escapeHtml(memberLabel);
+    const safeThumbnail = embed.thumbnail ? escapeHtml(embed.thumbnail) : '';
+    const safeInitial = escapeHtml((embed.title || 'S').charAt(0).toUpperCase());
+    const disabled = !embed.valid || embed.alreadyMember;
+    const buttonText = !embed.valid ? 'Invalid Invite' : (embed.alreadyMember ? 'Already Joined' : 'Join Server');
+
+    return `
+      <div class="message-embed message-invite-embed">
+        <div class="message-invite-header">
+          ${safeThumbnail
+            ? `<img class="message-invite-icon" src="${safeThumbnail}" alt="">`
+            : `<div class="message-invite-icon message-invite-icon-fallback">${safeInitial}</div>`}
+          <div class="message-invite-meta">
+            <div class="message-embed-provider">Server Invite</div>
+            <div class="message-embed-title">${safeTitle}</div>
+            <div class="message-embed-description">${safeDescription}</div>
+            <div class="message-embed-url">${safeMemberLabel} | Code: ${safeCode}</div>
+          </div>
+        </div>
+        <div class="message-invite-actions">
+          <button class="input-btn message-invite-join-btn" data-invite-code="${safeCode}" ${disabled ? 'disabled' : ''}>${buttonText}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  const safeUrl = escapeHtml(embed.url);
+  const safeTitle = escapeHtml(embed.title || embed.url);
+  const safeProvider = embed.provider ? escapeHtml(embed.provider) : '';
+  const safeDescription = embed.description ? escapeHtml(embed.description) : '';
+  const safeThumbnail = embed.thumbnail ? escapeHtml(embed.thumbnail) : '';
+
+  return `
+    <a class="message-embed" href="${safeUrl}" target="_blank" rel="noopener noreferrer">
+      ${safeThumbnail ? `<div class="message-embed-media"><img class="message-embed-thumb" src="${safeThumbnail}" alt=""></div>` : ''}
+      <div class="message-embed-body">
+        ${safeProvider ? `<div class="message-embed-provider">${safeProvider}</div>` : ''}
+        <div class="message-embed-title">${safeTitle}</div>
+        ${safeDescription ? `<div class="message-embed-description">${safeDescription}</div>` : ''}
+        <div class="message-embed-url">${safeUrl}</div>
+      </div>
+    </a>
+  `;
+}
+
+function renderMessageEmbed(messageKey, text) {
+  const embedContainer = document.getElementById(`msg-embed-${messageKey}`);
+  if (!embedContainer) return;
+  const url = extractFirstMessageUrl(text);
+  const inviteCode = url ? null : extractInviteCodeFromText(text);
+  if (!url && !inviteCode) {
+    embedContainer.innerHTML = '';
+    return;
+  }
+
+  let embedPromise;
+  if (url) {
+    embedPromise = getEmbedData(url);
+  } else {
+    const key = `invite:${inviteCode}`;
+    if (messageEmbedCache[key] && messageEmbedCache[key].type !== 'server-invite') {
+      delete messageEmbedCache[key];
+      delete messageEmbedPromises[key];
+    }
+    if (messageEmbedCache[key]) {
+      embedPromise = Promise.resolve(messageEmbedCache[key]);
+    } else if (messageEmbedPromises[key]) {
+      embedPromise = messageEmbedPromises[key];
+    } else {
+      messageEmbedPromises[key] = fetchInviteEmbedData(key, inviteCode).then(data => {
+        if (data) messageEmbedCache[key] = data;
+        delete messageEmbedPromises[key];
+        return data;
+      }).catch(() => {
+        delete messageEmbedPromises[key];
+        return null;
+      });
+      embedPromise = messageEmbedPromises[key];
+    }
+  }
+
+  embedPromise.then(embed => {
+    const container = document.getElementById(`msg-embed-${messageKey}`);
+    if (!container) return;
+    if (embed && embed.type === 'server-invite' && !embed.valid) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = embed ? buildEmbedMarkup(embed) : '';
+    bindInviteEmbedActions(container, embed, messageKey, text);
+  });
+}
+
+function bindInviteEmbedActions(container, embed, messageKey, text) {
+  if (!container || !embed || embed.type !== 'server-invite') return;
+  const joinBtn = container.querySelector('.message-invite-join-btn');
+  if (!joinBtn || joinBtn.disabled) return;
+
+  joinBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const inviteCode = normalizeInviteCode(joinBtn.dataset.inviteCode);
+    if (!inviteCode) return;
+    if (typeof joinServerByInviteCode !== 'function') return;
+
+    joinBtn.disabled = true;
+    joinBtn.textContent = 'Joining...';
+
+    joinServerByInviteCode(inviteCode, { closeInviteModal: false, clearInput: false }).then(joined => {
+      if (joined) {
+        joinBtn.textContent = 'Joined';
+      } else {
+        joinBtn.disabled = false;
+        joinBtn.textContent = 'Join Server';
+      }
+
+      const url = extractFirstMessageUrl(text);
+      const inviteCode = url ? null : extractInviteCodeFromText(text);
+      const cacheKey = url || (inviteCode ? `invite:${inviteCode}` : null);
+      if (cacheKey) {
+        delete messageEmbedCache[cacheKey];
+        delete messageEmbedPromises[cacheKey];
+      }
+      renderMessageEmbed(messageKey, text);
+    }).catch(() => {
+      joinBtn.disabled = false;
+      joinBtn.textContent = 'Join Server';
+    });
+  });
+}
+
 function loadMessages() {
   if (!currentChannel) return;
 
@@ -1587,6 +2072,14 @@ function loadMessages() {
   messagesRef.on('child_changed', (snap) => {
     const msg = snap.val();
     if (!msg) return;
+    const messageEl = document.getElementById(`msg-${snap.key}`);
+    if (messageEl && typeof msg.text === 'string') {
+      const textEl = messageEl.querySelector('.message-text');
+      if (textEl) {
+        textEl.innerHTML = formatMessageTextWithLinks(msg.text);
+      }
+      renderMessageEmbed(snap.key, msg.text);
+    }
     updateMessageReactions(snap.key, msg.reactions || {});
   });
 
@@ -1628,9 +2121,12 @@ function addMessage(key, msg) {
 
   let content = '';
   if (msg.text) {
-    content = `<div class="message-text">${escapeHtml(msg.text)}</div>`;
+    content = `
+      <div class="message-text">${formatMessageTextWithLinks(msg.text)}</div>
+      <div class="message-embed-container" id="msg-embed-${key}"></div>
+    `;
   } else if (msg.image) {
-    content = `<img src="${msg.image}" class="message-image" onclick="window.open('${msg.image}')" style="cursor:pointer;">`;
+    content = `<img src="${msg.image}" class="message-image message-image-clickable">`;
   }
 
   const time = msg.time || new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1659,6 +2155,21 @@ function addMessage(key, msg) {
   elements.messagesArea.scrollTop = elements.messagesArea.scrollHeight;
 
   updateMessageReactions(key, msg.reactions || {});
+  if (msg.text) {
+    renderMessageEmbed(key, msg.text);
+  }
+  if (msg.image) {
+    const imageEl = div.querySelector('.message-image-clickable');
+    if (imageEl) {
+      imageEl.addEventListener('click', () => {
+        if (typeof openImageViewer === 'function') {
+          openImageViewer(msg.image);
+        } else {
+          window.open(msg.image);
+        }
+      });
+    }
+  }
 }
 
 function sendMessage() {
@@ -1854,8 +2365,6 @@ function handleImageUpload(e) {
 function deleteMessage(key) {
   if (!currentServer || !currentChannel) return;
   
-  if (!confirm('Delete this message?')) return;
-  
   db.ref(`servers/${currentServer}/channels_data/${currentChannel}/messages/${key}`).remove()
     .catch(err => {
       showToast('Failed to delete message: ' + err.message, 'error');
@@ -1937,12 +2446,15 @@ function uploadAvatar(file) {
 }
 
 function updateMemberData() {
-  if (!currentServer) return;
-  db.ref(`servers/${currentServer}/members/${currentUser.uid}`).update({
-    username: userProfile.username,
-    avatar: userProfile.avatar,
-    status: userProfile.status,
-    bio: userProfile.bio || ''
+  if (!currentUser) return;
+  const targetServers = new Set(userServers || []);
+  if (currentServer) targetServers.add(currentServer);
+
+  targetServers.forEach(serverId => {
+    db.ref(`servers/${serverId}/members/${currentUser.uid}`).update({
+      username: userProfile.username,
+      avatar: userProfile.avatar
+    });
   });
   updateProfileData();
 }
@@ -1952,8 +2464,9 @@ function updateProfileData() {
   db.ref(`profiles/${currentUser.uid}`).update({
     username: userProfile.username,
     avatar: userProfile.avatar,
+    bio: userProfile.bio || '',
     status: userProfile.status,
-    bio: userProfile.bio || ''
+    lastSeen: Date.now()
   });
   db.ref(`users/${currentUser.uid}`).set(userProfile.username);
 }
@@ -2309,31 +2822,47 @@ function saveServerSettings() {
     updates['systemChannel'] = systemChannel;
   }
 
-  if (iconFile) {
-    compressImageFile(iconFile, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
-      .then(dataUrl => {
-        updates['icon'] = dataUrl;
-        return db.ref(`servers/${currentServer}`).update(updates);
-      })
-      .then(() => {
+  const applyUpdates = () => {
+    if (iconFile) {
+      compressImageFile(iconFile, { maxSize: 256, quality: 0.7, type: 'image/jpeg' })
+        .then(dataUrl => {
+          updates['icon'] = dataUrl;
+          return db.ref(`servers/${currentServer}`).update(updates);
+        })
+        .then(() => {
+          elements.serverName.textContent = newName || elements.serverName.textContent;
+          loadUserServers();
+          hideModal('serverSettings');
+          showToast('Server settings saved', 'success');
+          serverIconInput.value = '';
+          document.getElementById('serverSettingsIconLabel').textContent = 'Click to upload server icon';
+        })
+        .catch(err => {
+          showToast('Failed to update server icon: ' + err.message, 'error');
+        });
+    } else {
+      db.ref(`servers/${currentServer}`).update(updates).then(() => {
         elements.serverName.textContent = newName || elements.serverName.textContent;
         loadUserServers();
         hideModal('serverSettings');
         showToast('Server settings saved', 'success');
-        serverIconInput.value = '';
-        document.getElementById('serverSettingsIconLabel').textContent = 'Click to upload server icon';
-      })
-      .catch(err => {
-        showToast('Failed to update server icon: ' + err.message, 'error');
       });
-  } else {
-    db.ref(`servers/${currentServer}`).update(updates).then(() => {
-      elements.serverName.textContent = newName || elements.serverName.textContent;
-      loadUserServers();
-      hideModal('serverSettings');
-      showToast('Server settings saved', 'success');
-    });
-  }
+    }
+  };
+
+  const nameCheck = newName
+    ? isServerNameTaken(newName, currentServer)
+    : Promise.resolve(false);
+
+  nameCheck.then(taken => {
+    if (taken) {
+      showToast('A server with that name already exists', 'error');
+      return;
+    }
+    applyUpdates();
+  }).catch(err => {
+    showToast('Failed to validate server name: ' + err.message, 'error');
+  });
 }
 
 function setupServerSettingsModal() {
@@ -2731,58 +3260,8 @@ function setJoinRole() {
 // Override joinServer to use join role
 function joinServer() {
   const joinCodeInput = document.getElementById('joinCodeInput');
-  const code = joinCodeInput ? joinCodeInput.value.trim().toUpperCase() : '';
-  
-  if (!code) {
-    showToast('Please enter an invite code', 'error');
-    return;
-  }
-
-  db.ref('servers').once('value').then(snapshot => {
-    const servers = snapshot.val() || {};
-    let foundServer = null;
-
-    Object.entries(servers).forEach(([id, data]) => {
-      if (data.invite === code) foundServer = id;
-    });
-
-    if (!foundServer) {
-      showToast('Invalid invite code', 'error');
-      return;
-    }
-
-    if (userServers.includes(foundServer)) {
-      showToast('You are already in this server', 'error');
-      return;
-    }
-
-    // Get join role for this server
-    db.ref(`servers/${foundServer}/joinRole`).once('value').then(joinRoleSnap => {
-      const joinRole = joinRoleSnap.val() || 'Member';
-
-      db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: joinRole,
-        avatar: userProfile.avatar,
-        status: 'online',
-        joinedAt: Date.now()
-      });
-
-      // Send join message
-      sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
-
-      userServers.push(foundServer);
-      saveCookies();
-      loadUserServers();
-      selectServer(foundServer);
-      hideModal('invite');
-      isOnboarding = false;
-      forceJoinModal = false;
-      
-      if (joinCodeInput) joinCodeInput.value = '';
-      showToast('Successfully joined server!', 'success');
-    });
-  });
+  const code = joinCodeInput ? joinCodeInput.value : '';
+  joinServerByInviteCode(code, { closeInviteModal: true, clearInput: true });
 }
 
 
@@ -3161,6 +3640,139 @@ function showToast(message, type = 'info') {
   setTimeout(() => toast.remove(), 3000);
 }
 
+let imageViewerScale = 1;
+let imageViewerTranslateX = 0;
+let imageViewerTranslateY = 0;
+let imageViewerDragging = false;
+let imageViewerDragStartX = 0;
+let imageViewerDragStartY = 0;
+let imageViewerKeyHandlerAttached = false;
+
+function getImageViewerElements() {
+  const overlay = document.getElementById('imageViewerOverlay');
+  if (!overlay) return null;
+  return {
+    overlay,
+    viewport: document.getElementById('imageViewerViewport'),
+    image: document.getElementById('imageViewerImage')
+  };
+}
+
+function applyImageViewerTransform() {
+  const refs = getImageViewerElements();
+  if (!refs || !refs.image) return;
+  refs.image.style.transform = `translate(${imageViewerTranslateX}px, ${imageViewerTranslateY}px) scale(${imageViewerScale})`;
+}
+
+function setImageViewerScale(nextScale) {
+  imageViewerScale = Math.max(1, Math.min(6, nextScale));
+  if (imageViewerScale <= 1) {
+    imageViewerTranslateX = 0;
+    imageViewerTranslateY = 0;
+  }
+  applyImageViewerTransform();
+}
+
+function closeImageViewer() {
+  const refs = getImageViewerElements();
+  if (!refs) return;
+  refs.overlay.classList.remove('active');
+  document.body.classList.remove('image-viewer-open');
+  imageViewerDragging = false;
+}
+
+function ensureImageViewer() {
+  let refs = getImageViewerElements();
+  if (refs) return refs;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'imageViewerOverlay';
+  overlay.className = 'image-viewer-overlay';
+  overlay.innerHTML = `
+    <div class="image-viewer-toolbar">
+      <button class="image-viewer-btn" id="imageViewerZoomOut" title="Zoom out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+      <button class="image-viewer-btn" id="imageViewerZoomIn" title="Zoom in"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+      <button class="image-viewer-btn" id="imageViewerReset" title="Reset zoom"><i class="fa-solid fa-arrows-rotate"></i></button>
+      <button class="image-viewer-btn close" id="imageViewerClose" title="Close"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="image-viewer-viewport" id="imageViewerViewport">
+      <img id="imageViewerImage" class="image-viewer-image" alt="">
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  refs = getImageViewerElements();
+  if (!refs || !refs.viewport || !refs.image) return null;
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeImageViewer();
+  });
+
+  const zoomInBtn = document.getElementById('imageViewerZoomIn');
+  const zoomOutBtn = document.getElementById('imageViewerZoomOut');
+  const resetBtn = document.getElementById('imageViewerReset');
+  const closeBtn = document.getElementById('imageViewerClose');
+
+  if (zoomInBtn) zoomInBtn.addEventListener('click', () => setImageViewerScale(imageViewerScale + 0.2));
+  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => setImageViewerScale(imageViewerScale - 0.2));
+  if (resetBtn) resetBtn.addEventListener('click', () => setImageViewerScale(1));
+  if (closeBtn) closeBtn.addEventListener('click', closeImageViewer);
+
+  refs.viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const step = e.deltaY < 0 ? 0.12 : -0.12;
+    setImageViewerScale(imageViewerScale + step);
+  }, { passive: false });
+
+  refs.image.addEventListener('mousedown', (e) => {
+    if (imageViewerScale <= 1) return;
+    imageViewerDragging = true;
+    imageViewerDragStartX = e.clientX - imageViewerTranslateX;
+    imageViewerDragStartY = e.clientY - imageViewerTranslateY;
+    refs.image.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!imageViewerDragging || imageViewerScale <= 1) return;
+    imageViewerTranslateX = e.clientX - imageViewerDragStartX;
+    imageViewerTranslateY = e.clientY - imageViewerDragStartY;
+    applyImageViewerTransform();
+  });
+
+  window.addEventListener('mouseup', () => {
+    imageViewerDragging = false;
+    if (refs && refs.image) refs.image.classList.remove('dragging');
+  });
+
+  if (!imageViewerKeyHandlerAttached) {
+    document.addEventListener('keydown', (e) => {
+      const active = document.getElementById('imageViewerOverlay')?.classList.contains('active');
+      if (!active) return;
+      if (e.key === 'Escape') closeImageViewer();
+      if (e.key === '+' || e.key === '=') setImageViewerScale(imageViewerScale + 0.2);
+      if (e.key === '-') setImageViewerScale(imageViewerScale - 0.2);
+      if (e.key === '0') setImageViewerScale(1);
+    });
+    imageViewerKeyHandlerAttached = true;
+  }
+
+  return refs;
+}
+
+function openImageViewer(src) {
+  if (!src) return;
+  const refs = ensureImageViewer();
+  if (!refs || !refs.image || !refs.overlay) return;
+  imageViewerScale = 1;
+  imageViewerTranslateX = 0;
+  imageViewerTranslateY = 0;
+  refs.image.src = src;
+  applyImageViewerTransform();
+  refs.overlay.classList.add('active');
+  document.body.classList.add('image-viewer-open');
+}
+
 // Reactions
 const QUICK_REACTIONS = ['👍', '😂', '❤️', '😮', '😢', '🎉'];
 const EMOJI_SETS = {
@@ -3298,12 +3910,11 @@ function escapeHtml(text) {
 
 function startPresenceUpdates() {
   setInterval(() => {
-    if (currentUser && currentServer) {
-      db.ref(`servers/${currentServer}/members/${currentUser.uid}`).update({
-        status: userProfile.status,
-        lastSeen: Date.now()
-      });
-    }
+    if (!currentUser) return;
+    db.ref(`profiles/${currentUser.uid}`).update({
+      status: userProfile.status,
+      lastSeen: Date.now()
+    });
   }, 30000);
 }
 

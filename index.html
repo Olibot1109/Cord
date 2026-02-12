@@ -17,6 +17,7 @@
 <link rel="stylesheet" href="css/modals.css">
 <link rel="stylesheet" href="css/extras.css">
 <script src="js/app-core.js" defer></script>
+<script src="js/server-cleanup.js" defer></script>
 <script src="js/servers.js" defer></script>
 <script src="js/channels.js" defer></script>
 <script src="js/messages.js" defer></script>
@@ -168,17 +169,26 @@
 
   <div class="message-input-area">
     <div class="message-input-wrapper">
+      <div class="reply-composer" id="replyComposer">
+        <div class="reply-composer-line">
+          <span class="reply-composer-label">Replying to <span id="replyAuthor"></span></span>
+          <button class="reply-composer-cancel" onclick="clearReplyComposer()" title="Cancel reply"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="reply-composer-snippet" id="replySnippet"></div>
+      </div>
       <div class="message-input-container">
         <button class="attach-btn" onclick="document.getElementById('imageInput').click()" title="Upload Image"><i class="fa-solid fa-paperclip"></i></button>
         <input type="text" class="message-input" id="messageInput" placeholder="Message #general" maxlength="2000">
       </div>
       <div class="input-actions">
         <span class="char-count" id="charCount">0/2000</span>
+        <button class="input-btn" onclick="showModal('createPoll')" id="pollBtn"><i class="fa-solid fa-square-poll-vertical"></i> Poll</button>
         <button class="input-btn" onclick="sendMessage()" id="sendBtn">Send Message</button>
         <input type="file" id="imageInput" accept="image/*" style="display:none;">
       </div>
     </div>
     <div class="slowmode-notice" id="slowmodeNotice" aria-live="polite"></div>
+    <div class="command-dropdown" id="commandDropdown" style="display:none;"></div>
     <div class="mention-dropdown" id="mentionDropdown" style="display:none;"></div>
   </div>
 </div>
@@ -400,6 +410,29 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="createPollModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">Create Poll</div>
+      <div class="modal-subtitle">Ask a question and add options</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-input-group">
+        <label class="modal-label">Question</label>
+        <input type="text" class="modal-input" id="pollQuestionInput" placeholder="What should we do?" maxlength="200">
+      </div>
+      <div class="modal-input-group">
+        <label class="modal-label">Options (one per line, 2-8)</label>
+        <textarea class="modal-input" id="pollOptionsInput" placeholder="Option 1&#10;Option 2&#10;Option 3" maxlength="800" rows="6" style="resize: vertical;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="hideModal('createPoll')">Cancel</button>
+      <button class="modal-btn primary" onclick="createPollMessage()">Send Poll</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="manageChannelsModal">
   <div class="modal-content" style="width: 700px; max-width: 90vw;">
     <div class="modal-header">
@@ -571,6 +604,9 @@
               </label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                 <input type="checkbox" id="permMentionEveryone"> Mention @here/@everyone
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="permUseCommands"> Use Slash Commands
               </label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                 <input type="checkbox" id="permHoist"> Hoist Role

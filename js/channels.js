@@ -44,11 +44,13 @@ function loadChannels() {
         const div = document.createElement('div');
         div.className = 'channel-item' + (channelName === currentChannel && currentChannelType === 'text' ? ' active' : '');
         div.setAttribute('data-channel', channelName);
+        div.setAttribute('data-channel-type', 'text');
         if (!hasAccess) div.classList.add('locked');
 
         div.innerHTML = `
           <span class="channel-icon"><i class="fa-solid fa-hashtag"></i></span>
-          <span>${channelName}</span>
+          <span class="channel-name">${channelName}</span>
+          <span class="channel-mention-badge" style="display:none;"></span>
         `;
 
         if (hasAccess) {
@@ -58,6 +60,9 @@ function loadChannels() {
         }
 
         elements.textChannelsList.appendChild(div);
+        if (typeof refreshMentionBadges === 'function') {
+          refreshMentionBadges();
+        }
       });
     });
 
@@ -203,6 +208,9 @@ function switchChannel(channelName, type) {
   });
 
   if (type === 'text') {
+    if (typeof markChannelMentionsRead === 'function') {
+      markChannelMentionsRead(currentServer, channelName);
+    }
     // Don't hide voice panel if user is in a voice channel
     if (!inVoiceChannel) {
       elements.voicePanel.classList.remove('active');

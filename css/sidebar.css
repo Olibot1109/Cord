@@ -50,6 +50,25 @@
   object-fit: cover;
 }
 
+.server-mention-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  padding: 0 5px;
+  background: #f23f43;
+  color: #fff;
+  border: 3px solid #1e1f22;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 
 .server-icon.home {
   background: #313338;
@@ -175,6 +194,29 @@
 
 .channel-item.active .channel-icon { color: #fff; }
 .channel-item.locked .channel-icon { color: #f23f43; }
+
+.channel-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-mention-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  padding: 0 5px;
+  background: #f23f43;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 
 
 .voice-users {

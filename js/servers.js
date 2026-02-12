@@ -7,9 +7,13 @@ let dmUnreadListenerUnsubs = {};
 let dmFriendsListenerRef = null;
 let dmUnreadHeartbeatTimer = null;
 let dmUnreadVisibilityBound = false;
+const DM_UNREAD_WINDOW = 100;
+const DM_UNREAD_HEARTBEAT_MS = 5 * 60 * 1000;
 const dmPingProfileCache = {};
 const dmPingProfilePromises = {};
 const serverMembershipWatchers = {};
+const serverDataWatchers = {};
+const serverRailDataById = {};
 
 function unwatchServerMembership(serverId) {
   const watcher = serverMembershipWatchers[serverId];
@@ -18,15 +22,28 @@ function unwatchServerMembership(serverId) {
   delete serverMembershipWatchers[serverId];
 }
 
+function unwatchServerData(serverId) {
+  const watcher = serverDataWatchers[serverId];
+  if (!watcher) return;
+  watcher.nameRef.off('value', watcher.nameHandler);
+  watcher.iconRef.off('value', watcher.iconHandler);
+  delete serverDataWatchers[serverId];
+  delete serverRailDataById[serverId];
+}
+
 function handleServerMembershipRemoved(serverId) {
   if (!serverId) return;
   const wasActive = currentServer === serverId;
+  if (currentUser?.uid) {
+    db.ref(`userServers/${currentUser.uid}/${serverId}`).remove().catch(() => {});
+  }
   if (userServers.includes(serverId)) {
     userServers = userServers.filter(s => s !== serverId);
     saveCookies();
     loadUserServers();
   }
   unwatchServerMembership(serverId);
+  unwatchServerData(serverId);
   if (wasActive) {
     goHome();
     showToast('You were removed from that server', 'info');
@@ -52,6 +69,61 @@ function syncServerMembershipWatchers() {
     }
   });
   activeIds.forEach((serverId) => ensureServerMembershipWatcher(serverId));
+}
+
+function ensureServerDataWatcher(serverId) {
+  if (!serverId || serverDataWatchers[serverId]) return;
+  const nameRef = db.ref(`servers/${serverId}/name`);
+  const iconRef = db.ref(`servers/${serverId}/icon`);
+  serverRailDataById[serverId] = serverRailDataById[serverId] || { name: 'Server', icon: null };
+
+  const renderServerIcon = () => {
+    if (!userServers.includes(serverId)) return;
+    const serverData = serverRailDataById[serverId] || {};
+    let div = elements.serverList.querySelector(`[data-server="${serverId}"]`);
+    if (!div) {
+      div = document.createElement('div');
+      div.className = 'server-icon' + (serverId === currentServer ? ' active' : '');
+      div.setAttribute('data-server', serverId);
+      div.onclick = () => selectServer(serverId);
+      elements.serverList.appendChild(div);
+    }
+    div.title = serverData.name || 'Server';
+
+    if (serverData.icon) {
+      div.innerHTML = `<img src="${serverData.icon}" alt="" loading="lazy" decoding="async">`;
+    } else {
+      div.innerHTML = `<span>${(serverData.name || 'S').charAt(0).toUpperCase()}</span>`;
+    }
+    refreshMentionBadges();
+  };
+
+  const nameHandler = (snap) => {
+    const val = snap.val();
+    serverRailDataById[serverId] = serverRailDataById[serverId] || {};
+    serverRailDataById[serverId].name = (typeof val === 'string' && val.trim()) ? val : 'Server';
+    renderServerIcon();
+  };
+  const iconHandler = (snap) => {
+    const val = snap.val();
+    serverRailDataById[serverId] = serverRailDataById[serverId] || {};
+    serverRailDataById[serverId].icon = typeof val === 'string' ? val : null;
+    renderServerIcon();
+  };
+
+  nameRef.on('value', nameHandler);
+  iconRef.on('value', iconHandler);
+  serverDataWatchers[serverId] = { nameRef, iconRef, nameHandler, iconHandler };
+}
+
+function syncServerDataWatchers() {
+  const activeIds = new Set(userServers || []);
+  Object.keys(serverDataWatchers).forEach((serverId) => {
+    if (!activeIds.has(serverId)) {
+      unwatchServerData(serverId);
+    }
+  });
+  activeIds.forEach((serverId) => ensureServerDataWatcher(serverId));
 }
 
 function getMentionChannelKey(serverId, channelName) {
@@ -226,7 +298,7 @@ function ensureDmReadStateKey(dmId, friendUid, messages, readState) {
 function markDmReadToLatest(dmId) {
   if (!currentUser || !dmId) return Promise.resolve();
   const peerUid = dmId.split('_').find(uid => uid !== currentUser.uid) || null;
-  return db.ref(`dms/${dmId}/messages`).once('value').then((snapshot) => {
+  return db.ref(`dms/${dmId}/messages`).orderByKey().limitToLast(DM_UNREAD_WINDOW).once('value').then((snapshot) => {
     const messages = snapshot.val() || {};
     let latestTs = 0;
     let latestKey = '';
@@ -305,7 +377,7 @@ function renderDmServerRail() {
       const fallback = target.querySelector('.dm-ping-fallback');
       if (profile.avatar) {
         target.innerHTML = `
-          <img src="${profile.avatar}" alt="">
+          <img src="${profile.avatar}" alt="" loading="lazy" decoding="async">
           <span class="dm-ping-badge">${formatMentionCount(Number(dmUnreadByUid[uid]) || 0)}</span>
         `;
       } else if (fallback) {
@@ -342,6 +414,7 @@ function startDmUnreadWatcher(friendUid) {
   if (!dmId || dmUnreadListenerUnsubs[friendUid]) return;
 
   const messagesRef = db.ref(`dms/${dmId}/messages`);
+  const messagesQuery = messagesRef.orderByKey().limitToLast(DM_UNREAD_WINDOW);
   const handler = (snapshot) => {
     const messages = snapshot.val() || {};
     db.ref(`dmReads/${currentUser.uid}/${dmId}`).once('value').then(readSnap => {
@@ -375,8 +448,8 @@ function startDmUnreadWatcher(friendUid) {
     }).catch(() => {});
   };
 
-  messagesRef.on('value', handler);
-  dmUnreadListenerUnsubs[friendUid] = () => messagesRef.off('value', handler);
+  messagesQuery.on('value', handler);
+  dmUnreadListenerUnsubs[friendUid] = () => messagesQuery.off('value', handler);
 }
 
 function refreshAllDmUnreadNow() {
@@ -388,7 +461,7 @@ function refreshAllDmUnreadNow() {
       const dmId = getDmId(currentUser.uid, friendUid);
       if (!dmId) return Promise.resolve();
       return Promise.all([
-        db.ref(`dms/${dmId}/messages`).once('value'),
+        db.ref(`dms/${dmId}/messages`).orderByKey().limitToLast(DM_UNREAD_WINDOW).once('value'),
         db.ref(`dmReads/${currentUser.uid}/${dmId}`).once('value')
       ]).then(([messagesSnap, readSnap]) => {
         const messages = messagesSnap.val() || {};
@@ -432,8 +505,9 @@ function startGlobalDmUnreadWatcher() {
 
   if (!dmUnreadHeartbeatTimer) {
     dmUnreadHeartbeatTimer = setInterval(() => {
+      if (document.hidden) return;
       refreshAllDmUnreadNow();
-    }, 2500);
+    }, DM_UNREAD_HEARTBEAT_MS);
   }
   if (!dmUnreadVisibilityBound) {
     dmUnreadVisibilityBound = true;
@@ -485,46 +559,13 @@ function loadUserServers() {
     <div class="server-divider"></div>
   `;
 
-  const serverIds = [...userServers];
   syncServerMembershipWatchers();
+  syncServerDataWatchers();
 
   if (userServers.length === 0) {
     elements.serverList.innerHTML += '<div style="color:#949ba4;text-align:center;padding:20px;font-size:11px;">No servers</div>';
   } else {
-    userServers.forEach((serverId, index) => {
-      const ref = db.ref(`servers/${serverId}`);
-      ref.on('value', snap => {
-        if (!snap.exists()) {
-          // Server deleted: remove from user list and go home if active
-          userServers = userServers.filter(s => s !== serverId);
-          unwatchServerMembership(serverId);
-          saveCookies();
-          loadUserServers();
-          if (currentServer === serverId) {
-            goHome();
-          }
-          return;
-        }
-
-        const serverData = snap.val();
-        let div = elements.serverList.querySelector(`[data-server="${serverId}"]`);
-        if (!div) {
-          div = document.createElement('div');
-          div.className = 'server-icon' + (serverId === currentServer ? ' active' : '');
-          div.setAttribute('data-server', serverId);
-          div.onclick = () => selectServer(serverId);
-          elements.serverList.appendChild(div);
-        }
-        div.title = serverData.name || 'Server';
-
-        if (serverData.icon) {
-          div.innerHTML = `<img src="${serverData.icon}" alt="">`;
-        } else {
-          div.innerHTML = `<span>${(serverData.name || 'S').charAt(0).toUpperCase()}</span>`;
-        }
-        refreshMentionBadges();
-      });
-    });
+    userServers.forEach((serverId) => ensureServerDataWatcher(serverId));
   }
 
   const addBtn = document.createElement('div');
@@ -649,42 +690,45 @@ function selectServer(serverId) {
     }
   });
 
-  // Load server data
-  db.ref(`servers/${serverId}`).once('value').then(snap => {
-    if (snap.exists()) {
-      const data = snap.val();
-      currentServerOwnerId = data.ownerId || null;
-      
-      if (elements.serverName) elements.serverName.textContent = data.name || 'Server';
-      
-      const addChannelServerName = document.getElementById('addChannelServerName');
-      if (addChannelServerName) addChannelServerName.textContent = data.name || 'Server';
-      
-      const addVoiceChannelServerName = document.getElementById('addVoiceChannelServerName');
-      if (addVoiceChannelServerName) addVoiceChannelServerName.textContent = data.name || 'Server';
-
-      // Ensure member exists
-      db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value').then(memberSnap => {
-        if (!memberSnap.exists()) {
-          handleServerMembershipRemoved(serverId);
-          return;
-        } else {
-          const memberData = memberSnap.val();
-          userProfile.role = memberData.role || 'Member';
-          updateUserDisplay();
-          loadChannels();
-          if (elements.memberList.style.display !== 'none') {
-            loadMemberList();
-          }
-        }
-      });
-    } else {
+  // Load only the fields needed for switching server (avoid full server subtree read).
+  Promise.all([
+    db.ref(`servers/${serverId}/name`).once('value'),
+    db.ref(`servers/${serverId}/ownerId`).once('value'),
+    db.ref(`servers/${serverId}/members/${currentUser.uid}`).once('value')
+  ]).then(([nameSnap, ownerSnap, memberSnap]) => {
+    if (!nameSnap.exists()) {
       // Clean up missing servers from local list
       userServers = userServers.filter(s => s !== serverId);
       unwatchServerMembership(serverId);
+      unwatchServerData(serverId);
       saveCookies();
       loadUserServers();
       if (userServers.length === 0) goHome();
+      return;
+    }
+
+    const serverName = nameSnap.val() || 'Server';
+    currentServerOwnerId = ownerSnap.val() || null;
+
+    if (elements.serverName) elements.serverName.textContent = serverName;
+
+    const addChannelServerName = document.getElementById('addChannelServerName');
+    if (addChannelServerName) addChannelServerName.textContent = serverName;
+
+    const addVoiceChannelServerName = document.getElementById('addVoiceChannelServerName');
+    if (addVoiceChannelServerName) addVoiceChannelServerName.textContent = serverName;
+
+    if (!memberSnap.exists()) {
+      handleServerMembershipRemoved(serverId);
+      return;
+    }
+
+    const memberData = memberSnap.val() || {};
+    userProfile.role = memberData.role || 'Member';
+    updateUserDisplay();
+    loadChannels();
+    if (elements.memberList.style.display !== 'none') {
+      loadMemberList();
     }
   });
 }
@@ -803,7 +847,13 @@ function loadDirectMessages() {
         : '';
       div.innerHTML = `
         <span class="channel-icon dm-list-avatar" data-dm-avatar="${uid}">?</span>
-        <span data-uid="${uid}">Loading...</span>
+        <span class="dm-user-main">
+          <span class="dm-user-name" data-uid="${uid}">Loading...</span>
+          <span class="dm-user-status-line">
+            <span class="dm-user-status-dot offline" data-dm-status-dot="${uid}"></span>
+            <span class="dm-user-status-text" data-dm-status-text="${uid}">offline</span>
+          </span>
+        </span>
         <span style="margin-left:auto;display:flex;align-items:center;gap:6px;" data-dm-meta="${uid}">
           ${unreadBadge}
           <button class="action-btn delete" style="display:none;" data-remove="${uid}" title="Remove Friend"><i class="fa-solid fa-xmark"></i></button>
@@ -833,10 +883,29 @@ function loadDirectMessages() {
         const username = profile.username || 'Unknown';
         const nameEl = div.querySelector(`[data-uid="${uid}"]`);
         if (nameEl) nameEl.textContent = username;
+        const statusDotEl = div.querySelector(`[data-dm-status-dot="${uid}"]`);
+        const statusTextEl = div.querySelector(`[data-dm-status-text="${uid}"]`);
+        const rawStatus = String(profile.status || 'offline').toLowerCase();
+        const lastSeen = Number(profile.lastSeen || 0);
+        const isOnline = !!(lastSeen && (Date.now() - lastSeen < 60000) && rawStatus !== 'offline');
+        const statusClass = !isOnline ? 'offline' : (rawStatus === 'idle' ? 'idle' : rawStatus === 'dnd' ? 'dnd' : 'online');
+        const statusLabel = statusClass === 'idle'
+          ? 'idle'
+          : statusClass === 'dnd'
+            ? 'do not disturb'
+            : statusClass === 'online'
+              ? 'online'
+              : 'offline';
+        if (statusDotEl) {
+          statusDotEl.className = `dm-user-status-dot ${statusClass}`;
+        }
+        if (statusTextEl) {
+          statusTextEl.textContent = statusLabel;
+        }
         const avatarEl = div.querySelector(`[data-dm-avatar="${uid}"]`);
         if (avatarEl) {
           if (profile.avatar) {
-            avatarEl.innerHTML = `<img src="${profile.avatar}" style="width:100%;height:100%;object-fit:cover;">`;
+            avatarEl.innerHTML = `<img src="${profile.avatar}" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async">`;
           } else {
             avatarEl.textContent = username.charAt(0).toUpperCase();
           }
@@ -936,7 +1005,7 @@ function loadDiscoveryList() {
       div.style.gap = '8px';
       div.innerHTML = `
         <div style="width:28px;height:28px;border-radius:8px;background:#2b2d31;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
-          ${data.icon ? `<img src="${data.icon}" style="width:100%;height:100%;object-fit:cover;">` : `<span style="font-weight:700;color:#dbdee1;">${(data.name || 'S').charAt(0).toUpperCase()}</span>`}
+          ${data.icon ? `<img src="${data.icon}" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async">` : `<span style="font-weight:700;color:#dbdee1;">${(data.name || 'S').charAt(0).toUpperCase()}</span>`}
         </div>
         <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
           <div style="font-weight:600;color:#dbdee1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.name || 'Server'}</div>
@@ -955,7 +1024,7 @@ function showDiscoveryDetails(serverId, data) {
   const name = data?.name || 'Server';
   const desc = data?.description || 'No description';
   const memberCount = data?.members ? Object.keys(data.members).length : 0;
-  const icon = data?.icon ? `<img src="${data.icon}" style="width:64px;height:64px;border-radius:14px;object-fit:cover;">` : `<div style="width:64px;height:64px;border-radius:14px;background:#2b2d31;display:flex;align-items:center;justify-content:center;font-weight:700;">${name.charAt(0).toUpperCase()}</div>`;
+  const icon = data?.icon ? `<img src="${data.icon}" style="width:64px;height:64px;border-radius:14px;object-fit:cover;" loading="lazy" decoding="async">` : `<div style="width:64px;height:64px;border-radius:14px;background:#2b2d31;display:flex;align-items:center;justify-content:center;font-weight:700;">${name.charAt(0).toUpperCase()}</div>`;
   elements.messagesArea.innerHTML = `
     <div class="empty-state" style="text-align:left;align-items:flex-start;">
       <div style="display:flex;gap:16px;align-items:center;">
@@ -1193,21 +1262,19 @@ function createServer() {
       };
 
       db.ref(`servers/${serverId}`).set(serverData).then(() => {
-        // Create default channels
-        db.ref(`servers/${serverId}/channels/general`).set(true);
-        db.ref(`servers/${serverId}/channels/welcome`).set(true);
-
-        // Create default voice channel
-        db.ref(`servers/${serverId}/voiceChannels/General`).set({ limit: 0, createdAt: Date.now() });
-
-        // Add creator as admin (owner still gets crown + full perms)
-        db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+        const updates = {};
+        updates[`servers/${serverId}/channels/general`] = true;
+        updates[`servers/${serverId}/channels/welcome`] = true;
+        updates[`servers/${serverId}/voiceChannels/General`] = { limit: 0, createdAt: Date.now() };
+        updates[`servers/${serverId}/members/${currentUser.uid}`] = {
           username: userProfile.username,
           role: 'Admin',
           joinedAt: Date.now()
-        });
-
-        // Add welcome message
+        };
+        updates[`userServers/${currentUser.uid}/${serverId}`] = true;
+        updates[`inviteIndex/${serverData.invite}`] = serverId;
+        return db.ref().update(updates);
+      }).then(() => {
         sendSystemMessage(serverId, `Welcome to ${name}! This is the beginning of the server.`);
 
         userServers.push(serverId);
@@ -1282,16 +1349,23 @@ function joinServerByInviteCode(code, options = {}) {
     return Promise.resolve(false);
   }
 
-  return db.ref('servers').once('value').then(snapshot => {
-    const servers = snapshot.val() || {};
-    let foundServer = null;
-
-    Object.entries(servers).forEach(([id, data]) => {
-      if (foundServer) return;
-      const invite = normalizeInviteCode(data?.invite);
-      if (invite && invite === normalizedCode) foundServer = id;
+  return db.ref(`inviteIndex/${normalizedCode}`).once('value').then((inviteSnap) => {
+    let foundServer = inviteSnap.val() || null;
+    if (foundServer) return foundServer;
+    return db.ref('servers').once('value').then(snapshot => {
+      const servers = snapshot.val() || {};
+      let fallbackServer = null;
+      Object.entries(servers).forEach(([id, data]) => {
+        if (fallbackServer) return;
+        const invite = normalizeInviteCode(data?.invite);
+        if (invite && invite === normalizedCode) fallbackServer = id;
+      });
+      if (fallbackServer) {
+        db.ref(`inviteIndex/${normalizedCode}`).set(fallbackServer).catch(() => {});
+      }
+      return fallbackServer;
     });
-
+  }).then((foundServer) => {
     if (!foundServer) {
       showToast('Invalid invite code', 'error');
       return false;
@@ -1303,28 +1377,41 @@ function joinServerByInviteCode(code, options = {}) {
       return false;
     }
 
-    return db.ref(`servers/${foundServer}/joinRole`).once('value').then(joinRoleSnap => {
-      const joinRole = joinRoleSnap.val() || 'Member';
-      return db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: joinRole,
-        joinedAt: Date.now()
-      }).then(() => {
-        sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
+    return db.ref(`servers/${foundServer}`).once('value').then((serverSnap) => {
+      const serverData = serverSnap.val() || null;
+      const serverInvite = normalizeInviteCode(serverData?.invite || '');
+      if (!serverData || serverInvite !== normalizedCode) {
+        db.ref(`inviteIndex/${normalizedCode}`).remove().catch(() => {});
+        showToast('Invalid invite code', 'error');
+        return false;
+      }
 
-        userServers.push(foundServer);
-        saveCookies();
-        loadUserServers();
-        selectServer(foundServer);
-        if (closeInviteModal) hideModal('invite');
-        if (clearInput) {
-          const joinCodeInput = document.getElementById('joinCodeInput');
-          if (joinCodeInput) joinCodeInput.value = '';
-        }
-        isOnboarding = false;
-        forceJoinModal = false;
-        showToast('Successfully joined server!', 'success');
-        return true;
+      return db.ref(`servers/${foundServer}/joinRole`).once('value').then(joinRoleSnap => {
+        const joinRole = joinRoleSnap.val() || 'Member';
+        const updates = {};
+        updates[`servers/${foundServer}/members/${currentUser.uid}`] = {
+          username: userProfile.username,
+          role: joinRole,
+          joinedAt: Date.now()
+        };
+        updates[`userServers/${currentUser.uid}/${foundServer}`] = true;
+        return db.ref().update(updates).then(() => {
+          sendSystemMessage(foundServer, `${userProfile.username} joined the server.`);
+
+          userServers.push(foundServer);
+          saveCookies();
+          loadUserServers();
+          selectServer(foundServer);
+          if (closeInviteModal) hideModal('invite');
+          if (clearInput) {
+            const joinCodeInput = document.getElementById('joinCodeInput');
+            if (joinCodeInput) joinCodeInput.value = '';
+          }
+          isOnboarding = false;
+          forceJoinModal = false;
+          showToast('Successfully joined server!', 'success');
+          return true;
+        });
       });
     });
   }).catch(error => {
@@ -1364,20 +1451,24 @@ function joinServerById(serverId) {
 
     db.ref(`servers/${serverId}/joinRole`).once('value').then(joinRoleSnap => {
       const joinRole = joinRoleSnap.val() || 'Member';
-      db.ref(`servers/${serverId}/members/${currentUser.uid}`).set({
+      const updates = {};
+      updates[`servers/${serverId}/members/${currentUser.uid}`] = {
         username: userProfile.username,
         role: joinRole,
         joinedAt: Date.now()
-      });
-      sendSystemMessage(serverId, `${userProfile.username} joined the server.`);
+      };
+      updates[`userServers/${currentUser.uid}/${serverId}`] = true;
+      db.ref().update(updates).then(() => {
+        sendSystemMessage(serverId, `${userProfile.username} joined the server.`);
 
-      userServers.push(serverId);
-      saveCookies();
-      loadUserServers();
-      selectServer(serverId);
-      showToast('Successfully joined server!', 'success');
-      isOnboarding = false;
-      forceJoinModal = false;
+        userServers.push(serverId);
+        saveCookies();
+        loadUserServers();
+        selectServer(serverId);
+        showToast('Successfully joined server!', 'success');
+        isOnboarding = false;
+        forceJoinModal = false;
+      });
     });
   });
 }
@@ -1387,21 +1478,31 @@ function joinOfficialServer() {
   if (userServers.length >= 10) {
     return;
   }
-  db.ref('servers').once('value').then(snapshot => {
-    const servers = snapshot.val() || {};
-    let foundServer = null;
-
-    Object.entries(servers).forEach(([id, data]) => {
-      if (data.invite === code) foundServer = id;
-    });
-
-    if (foundServer && !userServers.includes(foundServer)) {
-      db.ref(`servers/${foundServer}/members/${currentUser.uid}`).set({
-        username: userProfile.username,
-        role: 'Member',
-        joinedAt: Date.now()
+  db.ref(`inviteIndex/${code}`).once('value').then((snap) => {
+    const indexedServer = snap.val() || null;
+    if (indexedServer) return indexedServer;
+    return db.ref('servers').once('value').then((snapshot) => {
+      const servers = snapshot.val() || {};
+      let fallbackServer = null;
+      Object.entries(servers).forEach(([id, data]) => {
+        if (fallbackServer) return;
+        if (normalizeInviteCode(data?.invite) === code) fallbackServer = id;
       });
-
+      if (fallbackServer) {
+        db.ref(`inviteIndex/${code}`).set(fallbackServer).catch(() => {});
+      }
+      return fallbackServer;
+    });
+  }).then((foundServer) => {
+    if (!foundServer || userServers.includes(foundServer)) return;
+    const updates = {};
+    updates[`servers/${foundServer}/members/${currentUser.uid}`] = {
+      username: userProfile.username,
+      role: 'Member',
+      joinedAt: Date.now()
+    };
+    updates[`userServers/${currentUser.uid}/${foundServer}`] = true;
+    db.ref().update(updates).then(() => {
       userServers.push(foundServer);
       saveCookies();
 
@@ -1409,7 +1510,7 @@ function joinOfficialServer() {
         currentServer = foundServer;
         initializeApp();
       }
-    }
+    });
   });
 }
 
@@ -1425,6 +1526,9 @@ function leaveServer() {
     // Owner leaving deletes the server for everyone
     db.ref(`servers/${currentServer}`).remove().then(() => {
       showToast('Server deleted (owner left)', 'success');
+      if (currentUser?.uid) {
+        db.ref(`userServers/${currentUser.uid}/${currentServer}`).remove().catch(() => {});
+      }
       userServers = userServers.filter(s => s !== currentServer);
       saveCookies();
       const newServer = userServers[0];
@@ -1442,7 +1546,10 @@ function leaveServer() {
   sendSystemMessage(currentServer, `${userProfile.username} left the server.`);
 
   const serverId = currentServer;
-  db.ref(`servers/${serverId}/members/${currentUser.uid}`).remove().then(() => {
+  const updates = {};
+  updates[`servers/${serverId}/members/${currentUser.uid}`] = null;
+  updates[`userServers/${currentUser.uid}/${serverId}`] = null;
+  db.ref().update(updates).then(() => {
     checkAndDeleteServer(serverId);
   });
   userServers = userServers.filter(s => s !== currentServer);

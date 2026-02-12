@@ -458,19 +458,37 @@ function escapeHtml(text) {
 }
 
 function startPresenceUpdates() {
-  setInterval(() => {
-    if (!currentUser) return;
+  if (startPresenceUpdates._started) return;
+  startPresenceUpdates._started = true;
+
+  const runPresenceTick = () => {
+    if (!currentUser || document.hidden) return;
+    if (typeof writePresenceHeartbeat === 'function') {
+      writePresenceHeartbeat();
+      return;
+    }
     db.ref(`profiles/${currentUser.uid}`).update({
       status: userProfile.status,
       lastSeen: Date.now()
     });
-  }, 30000);
+  };
+
+  runPresenceTick();
+  startPresenceUpdates._intervalId = setInterval(runPresenceTick, 30000);
+
+  if (!startPresenceUpdates._visibilityBound) {
+    startPresenceUpdates._visibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) runPresenceTick();
+    });
+  }
 }
 
 function compressImageFile(file, options) {
   const opts = {
     maxSize: options?.maxSize || 1024,
     quality: options?.quality ?? 0.7,
+    maxBytes: Number(options?.maxBytes) || 0,
     type: options?.type || 'image/jpeg'
   };
 
@@ -481,20 +499,38 @@ function compressImageFile(file, options) {
       const img = new Image();
       img.onerror = () => reject(new Error('Invalid image'));
       img.onload = () => {
-        const scale = Math.min(1, opts.maxSize / Math.max(img.width, img.height));
-        const targetW = Math.max(1, Math.round(img.width * scale));
-        const targetH = Math.max(1, Math.round(img.height * scale));
-
         const canvas = document.createElement('canvas');
-        canvas.width = targetW;
-        canvas.height = targetH;
         const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, targetW, targetH);
+        let scale = Math.min(1, opts.maxSize / Math.max(img.width, img.height));
+        let quality = opts.quality;
+        let attempts = 0;
+
+        function estimateDataUrlBytes(dataUrl) {
+          const comma = dataUrl.indexOf(',');
+          const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+          return Math.floor((base64.length * 3) / 4);
+        }
+
+        function renderOnce() {
+          const targetW = Math.max(1, Math.round(img.width * scale));
+          const targetH = Math.max(1, Math.round(img.height * scale));
+          canvas.width = targetW;
+          canvas.height = targetH;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.clearRect(0, 0, targetW, targetH);
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          return canvas.toDataURL(opts.type, quality);
+        }
 
         try {
-          const dataUrl = canvas.toDataURL(opts.type, opts.quality);
+          let dataUrl = renderOnce();
+          while (opts.maxBytes > 0 && estimateDataUrlBytes(dataUrl) > opts.maxBytes && attempts < 5) {
+            attempts += 1;
+            quality = Math.max(0.35, quality * 0.82);
+            scale = Math.max(0.45, scale * 0.88);
+            dataUrl = renderOnce();
+          }
           resolve(dataUrl);
         } catch (err) {
           reject(err);

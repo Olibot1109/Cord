@@ -1,5 +1,6 @@
 let duplicateServerCleanupInterval = null;
 let duplicateServerCleanupRunning = false;
+const CLIENT_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
 
 function normalizeServerName(name) {
   return typeof name === 'string' ? name.trim().toLowerCase() : '';
@@ -139,6 +140,7 @@ function cleanupDuplicateServersByName() {
 
 function startDuplicateServerCleanup() {
   if (duplicateServerCleanupInterval) return;
+  if (window.ENABLE_CLIENT_SERVER_CLEANUP !== true) return;
   cleanupDuplicateServersByName();
-  duplicateServerCleanupInterval = setInterval(cleanupDuplicateServersByName, 10000);
+  duplicateServerCleanupInterval = setInterval(cleanupDuplicateServersByName, CLIENT_CLEANUP_INTERVAL_MS);
 }

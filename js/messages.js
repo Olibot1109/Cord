@@ -2,7 +2,9 @@ let slowmodeTimer = null;
 let slowmodeUntil = 0;
 const messageProfileCache = {};
 const messageProfilePromises = {};
-const MESSAGE_LIMIT = 100;
+// Keep this lower because message payloads can contain inline media data URLs.
+// A smaller window prevents huge reload spikes while still keeping recent context.
+const MESSAGE_LIMIT = 35;
 const POLL_MIN_OPTIONS = 2;
 const POLL_MAX_OPTIONS = 8;
 const AI_COMMAND_API_KEY = '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';
@@ -31,10 +33,33 @@ let slashCommandHideTimer = null;
 let typingListenerRef = null;
 const messageEmbedCache = {};
 const messageEmbedPromises = {};
+let lazyEmbedObserver = null;
+const lazyEmbedPending = new Map();
+const lazyEmbedRendered = new Set();
 const pruneTimersByRef = new Map();
 const pruneErrorShownByRef = new Set();
-const MESSAGE_DEBUG = true;
+const MESSAGE_DEBUG = false;
+const MESSAGE_IMAGE_UPLOAD_MAX_DIM = 768;
+const MESSAGE_IMAGE_UPLOAD_QUALITY = 0.6;
+const MESSAGE_IMAGE_UPLOAD_MAX_BYTES = 220 * 1024;
+const MESSAGE_TEXT_MAX_CHARS = 2000;
 let activeMessageLoadToken = 0;
+let youtubePlayerMinimized = false;
+let youtubeFloatingDragState = {
+  active: false,
+  pointerId: null,
+  offsetX: 0,
+  offsetY: 0
+};
+let youtubeFloatingResizeState = {
+  active: false,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  startWidth: 0,
+  startHeight: 0
+};
+let youtubeFloatingRect = null;
 let voiceRecorder = null;
 let voiceRecordStream = null;
 let voiceRecordChunks = [];
@@ -53,6 +78,17 @@ function messageDebugLog(event, details = {}) {
     listeners: messageListeners.length
   };
   console.log(`[Messages][DBG] ${event}`, { ...context, ...details });
+}
+
+function looksLikeEncodedPayload(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (value.startsWith('data:image/') || value.startsWith('data:audio/')) return true;
+  if (value.includes('"image":"data:image/')) return true;
+  if (value.includes('"voice":"data:audio/')) return true;
+  if (value.includes('base64,') && value.length > 500) return true;
+  if (value.length > 1200 && /^[A-Za-z0-9+/=\s]+$/.test(value) && !/\s{2,}/.test(value)) return true;
+  return false;
 }
 
 function formatVoiceDuration(ms) {
@@ -296,19 +332,15 @@ function startSlowmodeCountdown(remainingMs) {
 
 function pruneMessages(messagesRef, keep = MESSAGE_LIMIT) {
   const refKey = messagesRef?.toString?.() || 'unknown-ref';
-  return messagesRef.once('value').then(snap => {
+  return messagesRef.orderByKey().limitToLast(keep + 1).once('value').then(snap => {
     const messages = snap.val() || {};
-    const items = Object.entries(messages).map(([key, msg]) => {
-      const ts = msg && typeof msg === 'object' ? Number(msg.timestamp) || 0 : 0;
-      return [ts, key];
-    });
+    const keys = Object.keys(messages).sort();
 
-    if (items.length <= keep) return;
+    if (keys.length <= keep) return;
 
-    items.sort((a, b) => (a[0] - b[0]) || (a[1] < b[1] ? -1 : 1));
-    const toDelete = items.slice(0, Math.max(0, items.length - keep));
+    const toDelete = keys.slice(0, Math.max(0, keys.length - keep));
     const updates = {};
-    toDelete.forEach(([, key]) => {
+    toDelete.forEach((key) => {
       updates[key] = null;
     });
     if (Object.keys(updates).length > 0) {
@@ -773,6 +805,29 @@ function fetchEmbedData(url) {
   if (inviteCode) {
     return fetchInviteEmbedData(cleanUrl, inviteCode);
   }
+  const youtubeId = extractYouTubeVideoId(cleanUrl);
+  if (youtubeId) {
+    const fallback = {
+      type: 'youtube',
+      youtubeId,
+      url: cleanUrl,
+      title: 'YouTube',
+      description: '',
+      provider: 'YouTube',
+      thumbnail: `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`
+    };
+    return fetch(`https://noembed.com/embed?nowrap=on&maxwidth=640&url=${encodeURIComponent(cleanUrl)}`)
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!data || data.error) return fallback;
+        return {
+          ...fallback,
+          title: data.title || fallback.title,
+          description: data.author_name ? `by ${data.author_name}` : ''
+        };
+      })
+      .catch(() => fallback);
+  }
 
   const fallback = {
     url: cleanUrl,
@@ -886,6 +941,331 @@ function fetchInviteEmbedData(url, inviteCode) {
   });
 }
 
+function extractYouTubeVideoId(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    return null;
+  }
+
+  const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+  if (host === 'youtu.be') {
+    const pathPart = parsed.pathname.split('/').filter(Boolean)[0] || '';
+    return /^[A-Za-z0-9_-]{6,20}$/.test(pathPart) ? pathPart : null;
+  }
+
+  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+    const v = parsed.searchParams.get('v') || '';
+    if (/^[A-Za-z0-9_-]{6,20}$/.test(v)) return v;
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'shorts' && /^[A-Za-z0-9_-]{6,20}$/.test(parts[1] || '')) return parts[1];
+    if (parts[0] === 'embed' && /^[A-Za-z0-9_-]{6,20}$/.test(parts[1] || '')) return parts[1];
+  }
+
+  return null;
+}
+
+function getYouTubeEmbedUrl(videoId, autoplay = false) {
+  const id = String(videoId || '').trim();
+  if (!id) return '';
+  const params = new URLSearchParams({
+    rel: '0',
+    modestbranding: '1',
+    playsinline: '1'
+  });
+  if (autoplay) params.set('autoplay', '1');
+  return `https://www.youtube.com/embed/${encodeURIComponent(id)}?${params.toString()}`;
+}
+
+function ensureYouTubePlayerOverlay() {
+  let overlay = document.getElementById('youtubePlayerOverlay');
+  if (overlay) return overlay;
+
+  overlay = document.createElement('div');
+  overlay.id = 'youtubePlayerOverlay';
+  overlay.className = 'youtube-player-overlay';
+  overlay.innerHTML = `
+    <div class="youtube-player-shell">
+      <div class="youtube-player-header">
+        <div class="youtube-player-title" id="youtubePlayerTitle">YouTube</div>
+        <div class="youtube-player-header-actions">
+          <button class="youtube-player-close" id="youtubePlayerMinimize" type="button" title="Minimize"><i class="fa-solid fa-window-minimize"></i></button>
+          <button class="youtube-player-close" id="youtubePlayerClose" type="button" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+      </div>
+      <div class="youtube-player-frame-wrap">
+        <iframe id="youtubePlayerFrame" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      </div>
+      <div class="youtube-player-resize-handle" id="youtubePlayerResizeHandle" title="Resize"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => closeYouTubePlayer();
+  const minimize = () => toggleYouTubePlayerMinimize();
+  const closeBtn = overlay.querySelector('#youtubePlayerClose');
+  const miniBtn = overlay.querySelector('#youtubePlayerMinimize');
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (miniBtn) miniBtn.addEventListener('click', minimize);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay && !youtubePlayerMinimized) close();
+  });
+  initYouTubeFloatingPlayerUi();
+
+  return overlay;
+}
+
+function showYouTubePlayerOverlayUi(show) {
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  if (!overlay) return;
+  overlay.classList.toggle('active', !!show);
+  overlay.classList.toggle('minimized', !!show && youtubePlayerMinimized);
+}
+
+function setYouTubePlayerTitles(title) {
+  const safeTitle = title || 'YouTube';
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  if (!overlay) return;
+  const titleEl = overlay.querySelector('#youtubePlayerTitle');
+  if (titleEl) titleEl.textContent = safeTitle;
+}
+
+function clampYouTubeFloatingShell(shell) {
+  if (!shell) return;
+  const rect = shell.getBoundingClientRect();
+  const maxX = Math.max(0, window.innerWidth - rect.width);
+  const maxY = Math.max(0, window.innerHeight - rect.height);
+  const nextLeft = Math.min(Math.max(0, rect.left), maxX);
+  const nextTop = Math.min(Math.max(0, rect.top), maxY);
+  shell.style.left = `${nextLeft}px`;
+  shell.style.top = `${nextTop}px`;
+  shell.style.right = 'auto';
+  shell.style.bottom = 'auto';
+}
+
+function applyYouTubeFloatingRect() {
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  const shell = overlay?.querySelector('.youtube-player-shell');
+  if (!shell || !youtubeFloatingRect) return;
+
+  const minW = 280;
+  const minH = 180;
+  const maxW = Math.max(minW, window.innerWidth - 20);
+  const maxH = Math.max(minH, window.innerHeight - 20);
+  const width = Math.min(Math.max(minW, Number(youtubeFloatingRect.width) || minW), maxW);
+  const height = Math.min(Math.max(minH, Number(youtubeFloatingRect.height) || minH), maxH);
+
+  shell.style.width = `${width}px`;
+  shell.style.height = `${height}px`;
+  shell.style.left = `${Number(youtubeFloatingRect.left) || 20}px`;
+  shell.style.top = `${Number(youtubeFloatingRect.top) || 20}px`;
+  shell.style.right = 'auto';
+  shell.style.bottom = 'auto';
+  clampYouTubeFloatingShell(shell);
+}
+
+function initYouTubeFloatingPlayerUi() {
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  const shell = overlay?.querySelector('.youtube-player-shell');
+  const header = overlay?.querySelector('.youtube-player-header');
+  const resizeHandle = overlay?.querySelector('#youtubePlayerResizeHandle');
+  if (!shell || !header || !resizeHandle || shell.dataset.floatReady === '1') return;
+
+  const beginDrag = (event) => {
+    if (!youtubePlayerMinimized) return;
+    if (event.button !== 0) return;
+    const rect = shell.getBoundingClientRect();
+    youtubeFloatingDragState.active = true;
+    youtubeFloatingDragState.pointerId = event.pointerId;
+    youtubeFloatingDragState.offsetX = event.clientX - rect.left;
+    youtubeFloatingDragState.offsetY = event.clientY - rect.top;
+    shell.classList.add('dragging');
+    shell.style.left = `${rect.left}px`;
+    shell.style.top = `${rect.top}px`;
+    shell.style.right = 'auto';
+    shell.style.bottom = 'auto';
+    header.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const onDrag = (event) => {
+    if (!youtubeFloatingDragState.active || youtubeFloatingDragState.pointerId !== event.pointerId) return;
+    const rect = shell.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    const maxY = Math.max(0, window.innerHeight - rect.height);
+    const nextLeft = Math.min(Math.max(0, event.clientX - youtubeFloatingDragState.offsetX), maxX);
+    const nextTop = Math.min(Math.max(0, event.clientY - youtubeFloatingDragState.offsetY), maxY);
+    shell.style.left = `${nextLeft}px`;
+    shell.style.top = `${nextTop}px`;
+    shell.style.right = 'auto';
+    shell.style.bottom = 'auto';
+  };
+
+  const endDrag = (event) => {
+    if (youtubeFloatingDragState.pointerId !== event.pointerId) return;
+    youtubeFloatingDragState.active = false;
+    youtubeFloatingDragState.pointerId = null;
+    shell.classList.remove('dragging');
+    youtubeFloatingRect = {
+      left: parseFloat(shell.style.left) || shell.getBoundingClientRect().left,
+      top: parseFloat(shell.style.top) || shell.getBoundingClientRect().top,
+      width: shell.getBoundingClientRect().width,
+      height: shell.getBoundingClientRect().height
+    };
+    if (header.hasPointerCapture(event.pointerId)) {
+      header.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const beginResize = (event) => {
+    if (!youtubePlayerMinimized) return;
+    if (event.button !== 0) return;
+    const rect = shell.getBoundingClientRect();
+    youtubeFloatingResizeState.active = true;
+    youtubeFloatingResizeState.pointerId = event.pointerId;
+    youtubeFloatingResizeState.startX = event.clientX;
+    youtubeFloatingResizeState.startY = event.clientY;
+    youtubeFloatingResizeState.startWidth = rect.width;
+    youtubeFloatingResizeState.startHeight = rect.height;
+    resizeHandle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const onResize = (event) => {
+    if (!youtubeFloatingResizeState.active || youtubeFloatingResizeState.pointerId !== event.pointerId) return;
+    const minW = 280;
+    const minH = 180;
+    const maxW = Math.max(minW, window.innerWidth - 10);
+    const maxH = Math.max(minH, window.innerHeight - 10);
+    const nextWidth = Math.min(maxW, Math.max(minW, youtubeFloatingResizeState.startWidth + (event.clientX - youtubeFloatingResizeState.startX)));
+    const nextHeight = Math.min(maxH, Math.max(minH, youtubeFloatingResizeState.startHeight + (event.clientY - youtubeFloatingResizeState.startY)));
+    shell.style.width = `${nextWidth}px`;
+    shell.style.height = `${nextHeight}px`;
+    clampYouTubeFloatingShell(shell);
+  };
+
+  const endResize = (event) => {
+    if (youtubeFloatingResizeState.pointerId !== event.pointerId) return;
+    youtubeFloatingResizeState.active = false;
+    youtubeFloatingResizeState.pointerId = null;
+    youtubeFloatingRect = {
+      left: parseFloat(shell.style.left) || shell.getBoundingClientRect().left,
+      top: parseFloat(shell.style.top) || shell.getBoundingClientRect().top,
+      width: shell.getBoundingClientRect().width,
+      height: shell.getBoundingClientRect().height
+    };
+    if (resizeHandle.hasPointerCapture(event.pointerId)) {
+      resizeHandle.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  header.addEventListener('pointerdown', beginDrag);
+  header.addEventListener('pointermove', onDrag);
+  header.addEventListener('pointerup', endDrag);
+  header.addEventListener('pointercancel', endDrag);
+
+  resizeHandle.addEventListener('pointerdown', beginResize);
+  resizeHandle.addEventListener('pointermove', onResize);
+  resizeHandle.addEventListener('pointerup', endResize);
+  resizeHandle.addEventListener('pointercancel', endResize);
+
+  window.addEventListener('resize', () => {
+    if (!youtubePlayerMinimized) return;
+    applyYouTubeFloatingRect();
+  });
+
+  shell.dataset.floatReady = '1';
+}
+
+function openYouTubePlayer(videoId, title = 'YouTube') {
+  const embedUrl = getYouTubeEmbedUrl(videoId, true);
+  if (!embedUrl) return;
+  const overlay = ensureYouTubePlayerOverlay();
+  const frame = overlay.querySelector('#youtubePlayerFrame');
+  const shell = overlay.querySelector('.youtube-player-shell');
+  youtubePlayerMinimized = false;
+  setYouTubePlayerTitles(title);
+  if (frame) frame.src = embedUrl;
+  if (shell) {
+    shell.style.width = '';
+    shell.style.height = '';
+    shell.style.left = '';
+    shell.style.top = '';
+    shell.style.right = '';
+    shell.style.bottom = '';
+  }
+  youtubeFloatingRect = null;
+  showYouTubePlayerOverlayUi(true);
+}
+
+function closeYouTubePlayer() {
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  if (!overlay) return;
+  const frame = overlay.querySelector('#youtubePlayerFrame');
+  const shell = overlay.querySelector('.youtube-player-shell');
+  if (frame) frame.src = '';
+  if (shell) {
+    shell.style.width = '';
+    shell.style.height = '';
+    shell.style.left = '';
+    shell.style.top = '';
+    shell.style.right = '';
+    shell.style.bottom = '';
+  }
+  youtubePlayerMinimized = false;
+  youtubeFloatingRect = null;
+  showYouTubePlayerOverlayUi(false);
+}
+
+function toggleYouTubePlayerMinimize() {
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  if (!overlay) return;
+  const frame = overlay.querySelector('#youtubePlayerFrame');
+  const shell = overlay.querySelector('.youtube-player-shell');
+  if (!frame || !frame.src) return;
+  youtubePlayerMinimized = !youtubePlayerMinimized;
+  if (youtubePlayerMinimized && !youtubeFloatingRect) {
+    const width = Math.min(460, Math.max(320, Math.floor(window.innerWidth * 0.34)));
+    const height = Math.round(width * 9 / 16) + 42;
+    youtubeFloatingRect = {
+      left: Math.max(10, window.innerWidth - width - 20),
+      top: Math.max(10, window.innerHeight - height - 20),
+      width,
+      height
+    };
+  }
+  if (youtubePlayerMinimized) {
+    applyYouTubeFloatingRect();
+  } else if (shell) {
+    shell.style.width = '';
+    shell.style.height = '';
+    shell.style.left = '';
+    shell.style.top = '';
+    shell.style.right = '';
+    shell.style.bottom = '';
+  }
+  showYouTubePlayerOverlayUi(true);
+}
+
+function restoreYouTubePlayer() {
+  const overlay = document.getElementById('youtubePlayerOverlay');
+  if (!overlay) return;
+  const frame = overlay.querySelector('#youtubePlayerFrame');
+  const shell = overlay.querySelector('.youtube-player-shell');
+  if (!frame || !frame.src) return;
+  youtubePlayerMinimized = false;
+  if (shell) {
+    shell.style.width = '';
+    shell.style.height = '';
+    shell.style.left = '';
+    shell.style.top = '';
+    shell.style.right = '';
+    shell.style.bottom = '';
+  }
+  showYouTubePlayerOverlayUi(true);
+}
+
 function getEmbedData(url) {
   if (!url) return Promise.resolve(null);
   if (messageEmbedCache[url]) return Promise.resolve(messageEmbedCache[url]);
@@ -902,6 +1282,70 @@ function getEmbedData(url) {
 
   messageEmbedPromises[url] = promise;
   return promise;
+}
+
+function ensureLazyEmbedObserver() {
+  if (lazyEmbedObserver) return lazyEmbedObserver;
+  if (typeof IntersectionObserver !== 'function') return null;
+  lazyEmbedObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const key = String(entry.target?.dataset?.msgKeyLazyEmbed || '');
+      if (!key) return;
+      const pending = lazyEmbedPending.get(key);
+      if (pending) {
+        lazyEmbedPending.delete(key);
+        lazyEmbedRendered.add(key);
+        renderMessageEmbed(key, pending.text);
+      }
+      lazyEmbedObserver.unobserve(entry.target);
+    });
+  }, {
+    root: elements.messagesArea || null,
+    rootMargin: '180px 0px',
+    threshold: 0.01
+  });
+  return lazyEmbedObserver;
+}
+
+function resetLazyEmbedState() {
+  lazyEmbedPending.clear();
+  lazyEmbedRendered.clear();
+  if (lazyEmbedObserver) {
+    lazyEmbedObserver.disconnect();
+    lazyEmbedObserver = null;
+  }
+}
+
+function scheduleLazyEmbedRender(messageKey, text) {
+  const key = String(messageKey || '');
+  if (!key) return;
+  const messageEl = document.getElementById(`msg-${key}`);
+  const embedContainer = document.getElementById(`msg-embed-${key}`);
+  const url = extractFirstMessageUrl(text);
+  const inviteCode = url ? null : extractInviteCodeFromText(text);
+  const hasEmbedCandidate = !!(url || inviteCode);
+
+  if (!hasEmbedCandidate) {
+    if (embedContainer) embedContainer.innerHTML = '';
+    lazyEmbedPending.delete(key);
+    lazyEmbedRendered.delete(key);
+    if (lazyEmbedObserver && messageEl) lazyEmbedObserver.unobserve(messageEl);
+    return;
+  }
+
+  lazyEmbedPending.set(key, { text: String(text || '') });
+  if (!messageEl) return;
+  messageEl.dataset.msgKeyLazyEmbed = key;
+
+  const observer = ensureLazyEmbedObserver();
+  if (!observer) {
+    lazyEmbedPending.delete(key);
+    lazyEmbedRendered.add(key);
+    renderMessageEmbed(key, text);
+    return;
+  }
+  observer.observe(messageEl);
 }
 
 function buildEmbedMarkup(embed) {
@@ -923,7 +1367,7 @@ function buildEmbedMarkup(embed) {
       <div class="message-embed message-invite-embed">
         <div class="message-invite-header">
           ${safeThumbnail
-            ? `<img class="message-invite-icon" src="${safeThumbnail}" alt="">`
+            ? `<img class="message-invite-icon" src="${safeThumbnail}" alt="" loading="lazy" decoding="async">`
             : `<div class="message-invite-icon message-invite-icon-fallback">${safeInitial}</div>`}
           <div class="message-invite-meta">
             <div class="message-embed-provider">Server Invite</div>
@@ -944,10 +1388,29 @@ function buildEmbedMarkup(embed) {
   const safeProvider = embed.provider ? escapeHtml(embed.provider) : '';
   const safeDescription = embed.description ? escapeHtml(embed.description) : '';
   const safeThumbnail = embed.thumbnail ? escapeHtml(embed.thumbnail) : '';
+  if (embed.type === 'youtube' && embed.youtubeId) {
+    const safeVideoId = escapeHtml(embed.youtubeId);
+    return `
+      <div class="message-embed message-youtube-embed">
+        ${safeThumbnail ? `<div class="message-embed-media"><img class="message-embed-thumb" src="${safeThumbnail}" alt="" loading="lazy" decoding="async"></div>` : ''}
+        <div class="message-embed-body">
+          ${safeProvider ? `<div class="message-embed-provider">${safeProvider}</div>` : ''}
+          <div class="message-embed-title">${safeTitle}</div>
+          ${safeDescription ? `<div class="message-embed-description">${safeDescription}</div>` : ''}
+          <div class="message-embed-url">${safeUrl}</div>
+          <div class="message-youtube-actions">
+            <button class="input-btn message-youtube-play-btn" data-youtube-id="${safeVideoId}" data-youtube-title="${safeTitle}" type="button">
+              <i class="fa-solid fa-play" style="margin-right:6px;"></i> Watch in app
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   return `
     <a class="message-embed" href="${safeUrl}" target="_blank" rel="noopener noreferrer">
-      ${safeThumbnail ? `<div class="message-embed-media"><img class="message-embed-thumb" src="${safeThumbnail}" alt=""></div>` : ''}
+      ${safeThumbnail ? `<div class="message-embed-media"><img class="message-embed-thumb" src="${safeThumbnail}" alt="" loading="lazy" decoding="async"></div>` : ''}
       <div class="message-embed-body">
         ${safeProvider ? `<div class="message-embed-provider">${safeProvider}</div>` : ''}
         <div class="message-embed-title">${safeTitle}</div>
@@ -1002,8 +1465,14 @@ function renderMessageEmbed(messageKey, text) {
       return;
     }
     container.innerHTML = embed ? buildEmbedMarkup(embed) : '';
-    bindInviteEmbedActions(container, embed, messageKey, text);
+    bindEmbedActions(container, embed, messageKey, text);
   });
+}
+
+function bindEmbedActions(container, embed, messageKey, text) {
+  if (!container || !embed) return;
+  bindInviteEmbedActions(container, embed, messageKey, text);
+  bindYouTubeEmbedActions(container, embed);
 }
 
 function bindInviteEmbedActions(container, embed, messageKey, text) {
@@ -1042,6 +1511,19 @@ function bindInviteEmbedActions(container, embed, messageKey, text) {
       joinBtn.disabled = false;
       joinBtn.textContent = 'Join Server';
     });
+  });
+}
+
+function bindYouTubeEmbedActions(container, embed) {
+  if (!container || !embed || embed.type !== 'youtube' || !embed.youtubeId) return;
+  const playBtn = container.querySelector('.message-youtube-play-btn');
+  if (!playBtn) return;
+  playBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const id = String(playBtn.dataset.youtubeId || '');
+    const title = String(playBtn.dataset.youtubeTitle || embed.title || 'YouTube');
+    openYouTubePlayer(id, title);
   });
 }
 
@@ -1412,6 +1894,7 @@ function loadMessages() {
   messageDebugLog('load:start', { loadToken, refPath });
 
   elements.messagesArea.innerHTML = '';
+  resetLazyEmbedState();
   clearReplyComposer();
   clearSlowmodeNotice();
   ensureMentionAutocomplete();
@@ -1428,12 +1911,13 @@ function loadMessages() {
   }
 
   const messagesRef = db.ref(refPath);
-  messageListeners.push(messagesRef);
+  const messagesQuery = messagesRef.orderByKey().limitToLast(MESSAGE_LIMIT);
+  messageListeners.push(messagesQuery);
   schedulePruneMessages(messagesRef);
-  messageDebugLog('load:listener_attached', { loadToken, refPath, refKey: messagesRef.toString() });
+  messageDebugLog('load:listener_attached', { loadToken, refPath, refKey: messagesRef.toString(), limit: MESSAGE_LIMIT });
 
   // Listen for new messages
-  messagesRef.on('child_added', (snap) => {
+  messagesQuery.on('child_added', (snap) => {
     if (loadToken !== activeMessageLoadToken) {
       messageDebugLog('listener:child_added_stale_ignored', { loadToken, activeLoadToken: activeMessageLoadToken, key: snap.key });
       return;
@@ -1455,18 +1939,21 @@ function loadMessages() {
   });
 
   // Listen for deleted messages
-  messagesRef.on('child_removed', (snap) => {
+  messagesQuery.on('child_removed', (snap) => {
     if (loadToken !== activeMessageLoadToken) {
       messageDebugLog('listener:child_removed_stale_ignored', { loadToken, activeLoadToken: activeMessageLoadToken, key: snap.key });
       return;
     }
     messageDebugLog('listener:child_removed', { loadToken, key: snap.key });
+    lazyEmbedPending.delete(snap.key);
+    lazyEmbedRendered.delete(snap.key);
     const msgEl = document.getElementById(`msg-${snap.key}`);
+    if (lazyEmbedObserver && msgEl) lazyEmbedObserver.unobserve(msgEl);
     if (msgEl) msgEl.remove();
   });
 
   // Listen for edits/reactions
-  messagesRef.on('child_changed', (snap) => {
+  messagesQuery.on('child_changed', (snap) => {
     if (loadToken !== activeMessageLoadToken) {
       messageDebugLog('listener:child_changed_stale_ignored', { loadToken, activeLoadToken: activeMessageLoadToken, key: snap.key });
       return;
@@ -1491,7 +1978,8 @@ function loadMessages() {
       if (textEl) {
         textEl.innerHTML = formatMessageTextWithLinks(msg.text);
       }
-      renderMessageEmbed(snap.key, msg.text);
+      lazyEmbedRendered.delete(snap.key);
+      scheduleLazyEmbedRender(snap.key, msg.text);
     }
     if (messageEl && msg.poll) {
       const pollContainer = messageEl.querySelector('.message-poll-container');
@@ -1603,7 +2091,9 @@ function addMessage(key, msg) {
       <div class="message-embed-container" id="msg-embed-${key}"></div>
     `;
   } else if (hasImage) {
-    content = `<img src="${msg.image}" class="message-image message-image-clickable">`;
+    // Avoid loading="lazy" here: some browsers/webviews skip lazy images inside
+    // custom scroll containers, which makes chat history appear blank.
+    content = `<img src="${msg.image}" class="message-image message-image-clickable" decoding="async">`;
   }
 
   const time = msg.time || new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1645,7 +2135,7 @@ function addMessage(key, msg) {
 
   updateMessageReactions(key, msg.reactions || {});
   if (msg.text) {
-    renderMessageEmbed(key, msg.text);
+    scheduleLazyEmbedRender(key, msg.text);
   }
   if (msg.image) {
     const imageEl = div.querySelector('.message-image-clickable');
@@ -2132,6 +2622,14 @@ function sendMessage() {
 
   const text = elements.messageInput.value.trim();
   if (!text) return;
+  if (text.length > MESSAGE_TEXT_MAX_CHARS) {
+    showToast(`Message too long (${text.length}/${MESSAGE_TEXT_MAX_CHARS}).`, 'error');
+    return;
+  }
+  if (looksLikeEncodedPayload(text)) {
+    showToast('Blocked large encoded payload. Use the image/voice upload button instead.', 'error');
+    return;
+  }
   messageDebugLog('send:start', {
     textLength: text.length,
     startsWithSlash: text.startsWith('/'),
@@ -2304,7 +2802,12 @@ function handleImageUpload(e) {
 
   if (currentChannelType === 'dm') {
     const replyTo = getReplyPayload();
-    compressImageFile(file, { maxSize: 1024, quality: 0.7, type: 'image/jpeg' })
+    compressImageFile(file, {
+      maxSize: MESSAGE_IMAGE_UPLOAD_MAX_DIM,
+      quality: MESSAGE_IMAGE_UPLOAD_QUALITY,
+      maxBytes: MESSAGE_IMAGE_UPLOAD_MAX_BYTES,
+      type: 'image/jpeg'
+    })
       .then(dataUrl => {
         const dmMessagesRef = db.ref(`dms/${currentChannel}/messages`);
         return dmMessagesRef.push({
@@ -2365,7 +2868,12 @@ function handleImageUpload(e) {
 
     function doSendImage(slowmodeSeconds) {
       const replyTo = getReplyPayload();
-      compressImageFile(file, { maxSize: 1024, quality: 0.7, type: 'image/jpeg' })
+      compressImageFile(file, {
+        maxSize: MESSAGE_IMAGE_UPLOAD_MAX_DIM,
+        quality: MESSAGE_IMAGE_UPLOAD_QUALITY,
+        maxBytes: MESSAGE_IMAGE_UPLOAD_MAX_BYTES,
+        type: 'image/jpeg'
+      })
         .then(dataUrl => {
           return db.ref(`servers/${currentServer}/roles/${userProfile.role}`).once('value').then(roleSnap => {
             const roleData = roleSnap.val() || {};

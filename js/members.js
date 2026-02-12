@@ -490,6 +490,7 @@ function kickMemberFromServer(member) {
 
   const updates = {};
   updates[`servers/${currentServer}/members/${member.uid}`] = null;
+  updates[`userServers/${member.uid}/${currentServer}`] = null;
 
   db.ref(`servers/${currentServer}/voiceChannels`).once('value').then((snap) => {
     const voiceChannels = snap.val() || {};

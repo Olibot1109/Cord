@@ -259,6 +259,61 @@
   white-space: nowrap;
 }
 
+.dm-user-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+}
+
+.dm-user-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-user-status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dm-user-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #747f8d;
+  flex-shrink: 0;
+}
+
+.dm-user-status-dot.online {
+  background: #23a559;
+}
+
+.dm-user-status-dot.idle {
+  background: #f0b232;
+}
+
+.dm-user-status-dot.dnd {
+  background: #f23f43;
+}
+
+.dm-user-status-dot.offline {
+  background: #747f8d;
+}
+
+.dm-user-status-text {
+  font-size: 11px;
+  color: #949ba4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .channel-mention-badge {
   margin-left: auto;
   min-width: 20px;

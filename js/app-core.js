@@ -55,6 +55,11 @@ let forceJoinModal = false;
 let rolesListRef = null;
 let rolesCache = {};
 let presenceListenerSet = false;
+let lastPresenceWriteAt = 0;
+let lastPresenceStatus = null;
+let lastTypingWriteAt = 0;
+const PRESENCE_MIN_WRITE_GAP_MS = 15000;
+const TYPING_WRITE_THROTTLE_MS = 2000;
 
 function sanitizeCookieProfile(raw) {
   if (!raw || typeof raw !== 'object') return {};
@@ -104,11 +109,28 @@ function hydrateProfileFromDatabase() {
 function resolveUserServersFromMembership() {
   if (!currentUser) return Promise.resolve([]);
 
-  return db.ref('servers').once('value').then(snapshot => {
-    const servers = snapshot.val() || {};
-    return Object.entries(servers)
-      .filter(([, data]) => data?.members && data.members[currentUser.uid])
-      .map(([serverId]) => serverId);
+  return db.ref(`userServers/${currentUser.uid}`).once('value').then((indexSnap) => {
+    const indexed = indexSnap.val() || {};
+    const indexedIds = Object.keys(indexed).filter((serverId) => !!indexed[serverId]);
+    if (indexedIds.length > 0) {
+      return indexedIds;
+    }
+
+    // Fallback for legacy users, then backfill index to avoid future full scans.
+    return db.ref('servers').once('value').then(snapshot => {
+      const servers = snapshot.val() || {};
+      const serverIds = Object.entries(servers)
+        .filter(([, data]) => data?.members && data.members[currentUser.uid])
+        .map(([serverId]) => serverId);
+      if (serverIds.length > 0) {
+        const updates = {};
+        serverIds.forEach((serverId) => {
+          updates[serverId] = true;
+        });
+        db.ref(`userServers/${currentUser.uid}`).update(updates).catch(() => {});
+      }
+      return serverIds;
+    });
   });
 }
 
@@ -197,9 +219,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     setupMentionNotifications();
     ensurePresenceConnectionListener();
-    if (typeof startDuplicateServerCleanup === 'function') {
-      startDuplicateServerCleanup();
-    }
+    // Disabled by default: full /servers scans are expensive client-side.
+    // Keep cleanup as a manual/admin task instead of every user session.
     
     console.log('[Auth] User signed in successfully:', {
       uid: currentUser.uid,
@@ -361,7 +382,7 @@ function updateUserDisplay() {
   elements.userStatus.textContent = userProfile.status.charAt(0).toUpperCase() + userProfile.status.slice(1);
 
   if (userProfile.avatar) {
-    elements.userAvatar.innerHTML = `<img src="${userProfile.avatar}" alt=""><div class="user-status-indicator" id="userStatusIndicator"></div>`;
+    elements.userAvatar.innerHTML = `<img src="${userProfile.avatar}" alt="" loading="lazy" decoding="async"><div class="user-status-indicator" id="userStatusIndicator"></div>`;
   } else {
     elements.userAvatarText.textContent = userProfile.username.charAt(0).toUpperCase();
   }
@@ -438,24 +459,24 @@ function setupEventListeners() {
     elements.charCount.className = 'char-count' + (len > 1800 ? ' warning' : '') + (len >= 2000 ? ' error' : '');
 
     // Typing indicator
-    if (currentChannel && currentChannelType === 'text' && currentServer) {
-      db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).set({
-        username: userProfile.username,
-        timestamp: Date.now()
-      });
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        db.ref(`servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`).remove();
-      }, 3000);
-    } else if (currentChannel && currentChannelType === 'dm') {
-      db.ref(`dms/${currentChannel}/typing/${currentUser.uid}`).set({
-        username: userProfile.username,
-        timestamp: Date.now()
-      });
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        db.ref(`dms/${currentChannel}/typing/${currentUser.uid}`).remove();
-      }, 3000);
+    if (currentUser && currentChannel) {
+      const typingPath = (currentChannelType === 'text' && currentServer)
+        ? `servers/${currentServer}/channels_data/${currentChannel}/typing/${currentUser.uid}`
+        : (currentChannelType === 'dm' ? `dms/${currentChannel}/typing/${currentUser.uid}` : null);
+      if (typingPath) {
+        const now = Date.now();
+        if ((now - lastTypingWriteAt) >= TYPING_WRITE_THROTTLE_MS) {
+          db.ref(typingPath).set({
+            username: userProfile.username,
+            timestamp: now
+          });
+          lastTypingWriteAt = now;
+        }
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          db.ref(typingPath).remove();
+        }, 3000);
+      }
     }
   });
 
@@ -524,10 +545,26 @@ function refreshPresenceForServers() {
   if (profileRef.child('lastSeen').onDisconnect) {
     profileRef.child('lastSeen').onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
   }
-  profileRef.update({
-    status: userProfile.status,
-    lastSeen: Date.now()
+  writePresenceHeartbeat(true);
+}
+
+function writePresenceHeartbeat(force = false) {
+  if (!currentUser) return;
+  if (!force && document.hidden) return;
+
+  const now = Date.now();
+  const nextStatus = userProfile.status || 'online';
+  const statusChanged = nextStatus !== lastPresenceStatus;
+  const staleEnough = (now - lastPresenceWriteAt) >= PRESENCE_MIN_WRITE_GAP_MS;
+
+  if (!force && !statusChanged && !staleEnough) return;
+
+  db.ref(`profiles/${currentUser.uid}`).update({
+    status: nextStatus,
+    lastSeen: now
   });
+  lastPresenceWriteAt = now;
+  lastPresenceStatus = nextStatus;
 }
 
 function ensurePresenceConnectionListener() {

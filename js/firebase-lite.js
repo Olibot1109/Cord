@@ -318,7 +318,7 @@
     }
   }
 
-  const baseUrl = window.CORD_API_BASE || "https://e.vapp.uk/";
+  const baseUrl = window.CORD_API_BASE || "https://e.vapp.uk";
   const authInstance = new AuthLite(baseUrl);
   const dbInstance = new DatabaseLite(baseUrl);
 

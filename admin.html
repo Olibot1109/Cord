@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schoolcord Admin Panel</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0f0f0f;
+  color: #e0e0e0;
+  overflow: hidden;
+}
+
+.admin-container {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  height: 100vh;
+}
+
+.sidebar {
+  background: #1a1a1a;
+  border-right: 1px solid #2a2a2a;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.logo {
+  font-size: 24px;
+  font-weight: bold;
+  color: #5865f2;
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-item {
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #b0b0b0;
+}
+
+.nav-item:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.nav-item.active {
+  background: #5865f2;
+  color: #fff;
+}
+
+.nav-item i {
+  width: 20px;
+}
+
+.main-content {
+  padding: 30px;
+  overflow-y: auto;
+  background: #141414;
+}
+
+.header {
+  margin-bottom: 30px;
+}
+
+.header h1 {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.header p {
+  color: #888;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.stat-card {
+  background: #1a1a1a;
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px solid #2a2a2a;
+}
+
+.stat-card .stat-label {
+  color: #888;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.stat-card .stat-value {
+  font-size: 32px;
+  font-weight: bold;
+  color: #5865f2;
+}
+
+.stat-card .stat-icon {
+  float: right;
+  font-size: 24px;
+  color: #5865f2;
+  opacity: 0.5;
+}
+
+.section {
+  display: none;
+}
+
+.section.active {
+  display: block;
+}
+
+.data-table {
+  background: #1a1a1a;
+  border-radius: 12px;
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+}
+
+.table-header {
+  padding: 20px;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.table-header h2 {
+  font-size: 20px;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #0f0f0f;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+}
+
+.search-box input {
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  outline: none;
+  width: 250px;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  max-height: calc(100vh - 350px);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  padding: 16px 20px;
+  background: #0f0f0f;
+  color: #888;
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+td {
+  padding: 16px 20px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.action-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-right: 8px;
+  transition: all 0.2s;
+}
+
+.btn-view {
+  background: #5865f2;
+  color: #fff;
+}
+
+.btn-view:hover {
+  background: #4752c4;
+}
+
+.btn-delete {
+  background: #ed4245;
+  color: #fff;
+}
+
+.btn-delete:hover {
+  background: #c93b3e;
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-online {
+  background: rgba(35, 165, 89, 0.2);
+  color: #23a559;
+}
+
+.badge-offline {
+  background: rgba(128, 128, 128, 0.2);
+  color: #888;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal-content {
+  background: #1a1a1a;
+  padding: 30px;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  border: 1px solid #2a2a2a;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.modal-header h2 {
+  font-size: 24px;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  color: #fff;
+}
+
+.detail-row {
+  padding: 12px 0;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  justify-content: space-between;
+}
+
+.detail-label {
+  color: #888;
+  font-weight: 600;
+}
+
+.detail-value {
+  color: #e0e0e0;
+  text-align: right;
+  max-width: 60%;
+  word-wrap: break-word;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #888;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #888;
+}
+
+.empty-state i {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.filter-bar {
+  padding: 20px;
+  background: #0f0f0f;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 8px 16px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-btn:hover {
+  background: #3a3a3a;
+}
+
+.filter-btn.active {
+  background: #5865f2;
+  border-color: #5865f2;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #5865f2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  margin-right: 8px;
+}
+
+.server-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #5865f2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  margin-right: 12px;
+}
+</style>
+</head>
+<body>
+
+<div class="admin-container">
+  <div class="sidebar">
+    <div class="logo">
+      <i class="fas fa-shield-alt"></i>
+      Admin Panel
+    </div>
+    
+    <div class="nav-item active" onclick="showSection('overview')">
+      <i class="fas fa-chart-line"></i>
+      Overview
+    </div>
+    
+    <div class="nav-item" onclick="showSection('servers')">
+      <i class="fas fa-server"></i>
+      Servers
+    </div>
+    
+    <div class="nav-item" onclick="showSection('users')">
+      <i class="fas fa-users"></i>
+      Users
+    </div>
+    
+    <div class="nav-item" onclick="showSection('messages')">
+      <i class="fas fa-comments"></i>
+      Messages
+    </div>
+    
+    <div class="nav-item" onclick="showSection('dms')">
+      <i class="fas fa-envelope"></i>
+      Direct Messages
+    </div>
+    
+    <div class="nav-item" onclick="showSection('channels')">
+      <i class="fas fa-hashtag"></i>
+      Channels
+    </div>
+  </div>
+
+  <div class="main-content">
+    <!-- Overview Section -->
+    <div class="section active" id="overview">
+      <div class="header">
+        <h1>Dashboard Overview</h1>
+        <p>Real-time statistics and metrics</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <i class="fas fa-server stat-icon"></i>
+          <div class="stat-label">Total Servers</div>
+          <div class="stat-value" id="totalServers">-</div>
+        </div>
+        
+        <div class="stat-card">
+          <i class="fas fa-users stat-icon"></i>
+          <div class="stat-label">Total Users</div>
+          <div class="stat-value" id="totalUsers">-</div>
+        </div>
+        
+        <div class="stat-card">
+          <i class="fas fa-comments stat-icon"></i>
+          <div class="stat-label">Total Messages</div>
+          <div class="stat-value" id="totalMessages">-</div>
+        </div>
+        
+        <div class="stat-card">
+          <i class="fas fa-hashtag stat-icon"></i>
+          <div class="stat-label">Total Channels</div>
+          <div class="stat-value" id="totalChannels">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Servers Section -->
+    <div class="section" id="servers">
+      <div class="header">
+        <h1>Server Management</h1>
+        <p>View and manage all servers</p>
+      </div>
+
+      <div class="data-table">
+        <div class="table-header">
+          <h2>All Servers</h2>
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" placeholder="Search servers..." id="serverSearch" onkeyup="filterTable('serversTable', 'serverSearch')">
+          </div>
+        </div>
+        
+        <div class="table-wrapper">
+          <table id="serversTable">
+            <thead>
+              <tr>
+                <th>Server</th>
+                <th>Members</th>
+                <th>Owner</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="serversBody">
+              <tr><td colspan="5" class="loading">Loading servers...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Users Section -->
+    <div class="section" id="users">
+      <div class="header">
+        <h1>User Management</h1>
+        <p>View and manage all users</p>
+      </div>
+
+      <div class="data-table">
+        <div class="table-header">
+          <h2>All Users</h2>
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" placeholder="Search users..." id="userSearch" onkeyup="filterTable('usersTable', 'userSearch')">
+          </div>
+        </div>
+        
+        <div class="table-wrapper">
+          <table id="usersTable">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Status</th>
+                <th>Bio</th>
+                <th>Last Seen</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersBody">
+              <tr><td colspan="5" class="loading">Loading users...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Messages Section -->
+    <div class="section" id="messages">
+      <div class="header">
+        <h1>Message Management</h1>
+        <p>View all server messages</p>
+      </div>
+
+      <div class="data-table">
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="setMessageFilter('all')">All Messages</button>
+          <button class="filter-btn" onclick="setMessageFilter('today')">Today</button>
+          <button class="filter-btn" onclick="setMessageFilter('week')">This Week</button>
+        </div>
+        
+        <div class="table-header">
+          <h2>Server Messages</h2>
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" placeholder="Search messages..." id="messageSearch" onkeyup="filterTable('messagesTable', 'messageSearch')">
+          </div>
+        </div>
+        
+        <div class="table-wrapper">
+          <table id="messagesTable">
+            <thead>
+              <tr>
+                <th>Server</th>
+                <th>Channel</th>
+                <th>Author</th>
+                <th>Message</th>
+                <th>Time</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="messagesBody">
+              <tr><td colspan="6" class="loading">Loading messages...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DMs Section -->
+    <div class="section" id="dms">
+      <div class="header">
+        <h1>Direct Messages</h1>
+        <p>View all DM conversations</p>
+      </div>
+
+      <div class="data-table">
+        <div class="table-header">
+          <h2>DM Messages</h2>
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" placeholder="Search DMs..." id="dmSearch" onkeyup="filterTable('dmsTable', 'dmSearch')">
+          </div>
+        </div>
+        
+        <div class="table-wrapper">
+          <table id="dmsTable">
+            <thead>
+              <tr>
+                <th>Conversation</th>
+                <th>Author</th>
+                <th>Message</th>
+                <th>Time</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="dmsBody">
+              <tr><td colspan="5" class="loading">Loading DMs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Channels Section -->
+    <div class="section" id="channels">
+      <div class="header">
+        <h1>Channel Management</h1>
+        <p>View all channels across servers</p>
+      </div>
+
+      <div class="data-table">
+        <div class="table-header">
+          <h2>All Channels</h2>
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" placeholder="Search channels..." id="channelSearch" onkeyup="filterTable('channelsTable', 'channelSearch')">
+          </div>
+        </div>
+        
+        <div class="table-wrapper">
+          <table id="channelsTable">
+            <thead>
+              <tr>
+                <th>Channel</th>
+                <th>Server</th>
+                <th>Type</th>
+                <th>Topic</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="channelsBody">
+              <tr><td colspan="5" class="loading">Loading channels...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal" id="detailModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modalTitle">Details</h2>
+      <button class="close-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyA4BYjOa__uKZjOBvS5p_uMxmJ6AMsKcpg",
+  authDomain: "chat1-6cc2e.firebaseapp.com",
+  databaseURL: "https://chat1-6cc2e-default-rtdb.firebaseio.com",
+  projectId: "chat1-6cc2e",
+  storageBucket: "chat1-6cc2e.firebasestorage.app",
+  messagingSenderId: "771765903902",
+  appId: "1:771765903902:web:a6fb2e71b059c20ba7840f"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let currentMessageFilter = 'all';
+
+function showSection(section) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(section).classList.add('active');
+  event.target.closest('.nav-item').classList.add('active');
+  
+  if (section === 'servers') loadServers();
+  else if (section === 'users') loadUsers();
+  else if (section === 'messages') loadMessages();
+  else if (section === 'dms') loadDMs();
+  else if (section === 'channels') loadChannels();
+}
+
+function loadStats() {
+  db.ref('servers').once('value', snap => {
+    const servers = snap.val() || {};
+    document.getElementById('totalServers').textContent = Object.keys(servers).length;
+    
+    let totalChannels = 0;
+    Object.values(servers).forEach(server => {
+      if (server.channels) totalChannels += Object.keys(server.channels).length;
+      if (server.voiceChannels) totalChannels += Object.keys(server.voiceChannels).length;
+    });
+    document.getElementById('totalChannels').textContent = totalChannels;
+  });
+  
+  db.ref('profiles').once('value', snap => {
+    const profiles = snap.val() || {};
+    document.getElementById('totalUsers').textContent = Object.keys(profiles).length;
+  });
+  
+  db.ref('servers').once('value', snap => {
+    const servers = snap.val() || {};
+    let totalMessages = 0;
+    Object.values(servers).forEach(server => {
+      if (server.channels_data) {
+        Object.values(server.channels_data).forEach(channel => {
+          if (channel.messages) totalMessages += Object.keys(channel.messages).length;
+        });
+      }
+    });
+    document.getElementById('totalMessages').textContent = totalMessages;
+  });
+}
+
+function loadServers() {
+  db.ref('servers').once('value', snap => {
+    const servers = snap.val() || {};
+    const tbody = document.getElementById('serversBody');
+    
+    if (Object.keys(servers).length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No servers found</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = '';
+    Object.entries(servers).forEach(([id, server]) => {
+      const memberCount = server.members ? Object.keys(server.members).length : 0;
+      const created = server.createdAt ? new Date(server.createdAt).toLocaleDateString() : 'Unknown';
+      
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <span class="server-icon">${(server.name || 'S').charAt(0).toUpperCase()}</span>
+          ${server.name || 'Unnamed Server'}
+        </td>
+        <td>${memberCount}</td>
+        <td>${server.ownerId ? server.ownerId.substring(0, 8) + '...' : 'Unknown'}</td>
+        <td>${created}</td>
+        <td>
+          <button class="action-btn btn-view" onclick="viewServer('${id}')">View</button>
+          <button class="action-btn btn-delete" onclick="deleteServer('${id}')">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  });
+}
+
+function loadUsers() {
+  db.ref('profiles').once('value', snap => {
+    const profiles = snap.val() || {};
+    const tbody = document.getElementById('usersBody');
+    
+    if (Object.keys(profiles).length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No users found</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = '';
+    Object.entries(profiles).forEach(([uid, profile]) => {
+      const isOnline = profile.lastSeen && (Date.now() - profile.lastSeen < 60000);
+      const lastSeen = profile.lastSeen ? new Date(profile.lastSeen).toLocaleString() : 'Never';
+      
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <span class="user-avatar">${(profile.username || 'U').charAt(0).toUpperCase()}</span>
+          ${profile.username || 'Unknown'}
+        </td>
+        <td><span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${profile.status || 'offline'}</span></td>
+        <td>${(profile.bio || 'No bio').substring(0, 50)}</td>
+        <td>${lastSeen}</td>
+        <td>
+          <button class="action-btn btn-view" onclick="viewUser('${uid}')">View</button>
+          <button class="action-btn btn-delete" onclick="deleteUser('${uid}')">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  });
+}
+
+function loadMessages() {
+  db.ref('servers').once('value', snap => {
+    const servers = snap.val() || {};
+    const tbody = document.getElementById('messagesBody');
+    const messages = [];
+    
+    Object.entries(servers).forEach(([serverId, server]) => {
+      if (server.channels_data) {
+        Object.entries(server.channels_data).forEach(([channelName, channelData]) => {
+          if (channelData.messages) {
+            Object.entries(channelData.messages).forEach(([msgId, msg]) => {
+              messages.push({
+                serverId,
+                serverName: server.name || 'Unknown',
+                channelName,
+                msgId,
+                ...msg
+              });
+            });
+          }
+        });
+      }
+    });
+    
+    if (messages.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-inbox"></i><br>No messages found</td></tr>';
+      return;
+    }
+    
+    messages.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    
+    const filteredMessages = messages.filter(msg => {
+      if (currentMessageFilter === 'today') {
+        const today = new Date().setHours(0, 0, 0, 0);
+        return msg.timestamp >= today;
+      } else if (currentMessageFilter === 'week') {
+        const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        return msg.timestamp >= weekAgo;
+      }
+      return true;
+    }).slice(0, 100);
+    
+    tbody.innerHTML = '';
+    filteredMessages.forEach(msg => {
+      const row = document.createElement('tr');
+      const msgPreview = msg.text ? msg.text.substring(0, 50) : (msg.image ? '[Image]' : '[Poll]');
+      const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown';
+      
+      row.innerHTML = `
+        <td>${msg.serverName}</td>
+        <td>#${msg.channelName}</td>
+        <td>${msg.author || 'Unknown'}</td>
+        <td>${msgPreview}</td>
+        <td>${time}</td>
+        <td>
+          <button class="action-btn btn-view" onclick="viewMessage('${msg.serverId}', '${msg.channelName}', '${msg.msgId}')">View</button>
+          <button class="action-btn btn-delete" onclick="deleteMessage('${msg.serverId}', '${msg.channelName}', '${msg.msgId}')">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  });
+}
+
+function loadDMs() {
+  db.ref('dms').once('value', snap => {
+    const dms = snap.val() || {};
+    const tbody = document.getElementById('dmsBody');
+    const messages = [];
+    
+    Object.entries(dms).forEach(([dmId, dm]) => {
+      if (dm.messages) {
+        Object.entries(dm.messages).forEach(([msgId, msg]) => {
+          messages.push({
+            dmId,
+            msgId,
+            ...msg
+          });
+        });
+      }
+    });
+    
+    if (messages.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No DMs found</td></tr>';
+      return;
+    }
+    
+    messages.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100);
+    
+    tbody.innerHTML = '';
+    messages.forEach(msg => {
+      const row = document.createElement('tr');
+      const msgPreview = msg.text ? msg.text.substring(0, 50) : '[Image]';
+      const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown';
+      
+      row.innerHTML = `
+        <td>${msg.dmId}</td>
+        <td>${msg.author || 'Unknown'}</td>
+        <td>${msgPreview}</td>
+        <td>${time}</td>
+        <td>
+          <button class="action-btn btn-view" onclick="viewDM('${msg.dmId}', '${msg.msgId}')">View</button>
+          <button class="action-btn btn-delete" onclick="deleteDM('${msg.dmId}', '${msg.msgId}')">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  });
+}
+
+function loadChannels() {
+  db.ref('servers').once('value', snap => {
+    const servers = snap.val() || {};
+    const tbody = document.getElementById('channelsBody');
+    const channels = [];
+    
+    Object.entries(servers).forEach(([serverId, server]) => {
+      if (server.channels) {
+        Object.keys(server.channels).forEach(channelName => {
+          const channelData = server.channels_data?.[channelName] || {};
+          channels.push({
+            serverId,
+            serverName: server.name || 'Unknown',
+            channelName,
+            type: 'Text',
+            topic: channelData.topic || 'No topic'
+          });
+        });
+      }
+      if (server.voiceChannels) {
+        Object.keys(server.voiceChannels).forEach(channelName => {
+          channels.push({
+            serverId,
+            serverName: server.name || 'Unknown',
+            channelName,
+            type: 'Voice',
+            topic: '-'
+          });
+        });
+      }
+    });
+    
+    if (channels.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No channels found</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = '';
+    channels.forEach(channel => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${channel.type === 'Text' ? '#' : '🔊'} ${channel.channelName}</td>
+        <td>${channel.serverName}</td>
+        <td><span class="badge">${channel.type}</span></td>
+        <td>${channel.topic}</td>
+        <td>
+          <button class="action-btn btn-delete" onclick="deleteChannel('${channel.serverId}', '${channel.channelName}', '${channel.type}')">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  });
+}
+
+function viewServer(serverId) {
+  db.ref(`servers/${serverId}`).once('value', snap => {
+    const server = snap.val();
+    if (!server) return;
+    
+    const memberCount = server.members ? Object.keys(server.members).length : 0;
+    const channelCount = server.channels ? Object.keys(server.channels).length : 0;
+    
+    document.getElementById('modalTitle').textContent = server.name || 'Server Details';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="detail-row">
+        <div class="detail-label">Server ID</div>
+        <div class="detail-value">${serverId}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Name</div>
+        <div class="detail-value">${server.name || 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Description</div>
+        <div class="detail-value">${server.description || 'No description'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Owner</div>
+        <div class="detail-value">${server.ownerId || 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Members</div>
+        <div class="detail-value">${memberCount}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Channels</div>
+        <div class="detail-value">${channelCount}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Invite Code</div>
+        <div class="detail-value">${server.invite || 'None'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Created</div>
+        <div class="detail-value">${server.createdAt ? new Date(server.createdAt).toLocaleString() : 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Discoverable</div>
+        <div class="detail-value">${server.discoverable ? 'Yes' : 'No'}</div>
+      </div>
+    `;
+    document.getElementById('detailModal').classList.add('active');
+  });
+}
+
+function viewUser(uid) {
+  db.ref(`profiles/${uid}`).once('value', snap => {
+    const user = snap.val();
+    if (!user) return;
+    
+    const isOnline = user.lastSeen && (Date.now() - user.lastSeen < 60000);
+    
+    document.getElementById('modalTitle').textContent = user.username || 'User Details';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="detail-row">
+        <div class="detail-label">User ID</div>
+        <div class="detail-value">${uid}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Username</div>
+        <div class="detail-value">${user.username || 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Bio</div>
+        <div class="detail-value">${user.bio || 'No bio'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Status</div>
+        <div class="detail-value"><span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${user.status || 'offline'}</span></div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Last Seen</div>
+        <div class="detail-value">${user.lastSeen ? new Date(user.lastSeen).toLocaleString() : 'Never'}</div>
+      </div>
+    `;
+    document.getElementById('detailModal').classList.add('active');
+  });
+}
+
+function viewMessage(serverId, channelName, msgId) {
+  db.ref(`servers/${serverId}/channels_data/${channelName}/messages/${msgId}`).once('value', snap => {
+    const msg = snap.val();
+    if (!msg) return;
+    
+    document.getElementById('modalTitle').textContent = 'Message Details';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="detail-row">
+        <div class="detail-label">Author</div>
+        <div class="detail-value">${msg.author || 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Text</div>
+        <div class="detail-value">${msg.text || '[No text]'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Time</div>
+        <div class="detail-value">${msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Role</div>
+        <div class="detail-value">${msg.role || 'Member'}</div>
+      </div>
+    `;
+    document.getElementById('detailModal').classList.add('active');
+  });
+}
+
+function viewDM(dmId, msgId) {
+  db.ref(`dms/${dmId}/messages/${msgId}`).once('value', snap => {
+    const msg = snap.val();
+    if (!msg) return;
+    
+    document.getElementById('modalTitle').textContent = 'DM Details';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="detail-row">
+        <div class="detail-label">Author</div>
+        <div class="detail-value">${msg.author || 'Unknown'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Text</div>
+        <div class="detail-value">${msg.text || '[No text]'}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Time</div>
+        <div class="detail-value">${msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown'}</div>
+      </div>
+    `;
+    document.getElementById('detailModal').classList.add('active');
+  });
+}
+
+function deleteServer(serverId) {
+  if (!confirm('Are you sure you want to delete this server? This action cannot be undone.')) return;
+  db.ref(`servers/${serverId}`).remove().then(() => {
+    alert('Server deleted successfully');
+    loadServers();
+    loadStats();
+  });
+}
+
+function deleteUser(uid) {
+  if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+  db.ref(`profiles/${uid}`).remove().then(() => {
+    alert('User deleted successfully');
+    loadUsers();
+    loadStats();
+  });
+}
+
+function deleteMessage(serverId, channelName, msgId) {
+  if (!confirm('Delete this message?')) return;
+  db.ref(`servers/${serverId}/channels_data/${channelName}/messages/${msgId}`).remove().then(() => {
+    alert('Message deleted');
+    loadMessages();
+  });
+}
+
+function deleteDM(dmId, msgId) {
+  if (!confirm('Delete this DM?')) return;
+  db.ref(`dms/${dmId}/messages/${msgId}`).remove().then(() => {
+    alert('DM deleted');
+    loadDMs();
+  });
+}
+
+function deleteChannel(serverId, channelName, type) {
+  if (!confirm(`Delete channel #${channelName}?`)) return;
+  const path = type === 'Text' ? `servers/${serverId}/channels/${channelName}` : `servers/${serverId}/voiceChannels/${channelName}`;
+  db.ref(path).remove().then(() => {
+    if (type === 'Text') {
+      db.ref(`servers/${serverId}/channels_data/${channelName}`).remove();
+    }
+    alert('Channel deleted');
+    loadChannels();
+  });
+}
+
+function closeModal() {
+  document.getElementById('detailModal').classList.remove('active');
+}
+
+function filterTable(tableId, searchId) {
+  const input = document.getElementById(searchId);
+  const filter = input.value.toLowerCase();
+  const table = document.getElementById(tableId);
+  const rows = table.getElementsByTagName('tr');
+  
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(filter) ? '' : 'none';
+  }
+}
+
+function setMessageFilter(filter) {
+  currentMessageFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+  loadMessages();
+}
+
+// Initialize
+loadStats();
+</script>
+</body>
+</html>

@@ -381,6 +381,284 @@ td {
   font-weight: bold;
   margin-right: 12px;
 }
+
+.json-editor {
+  width: 100%;
+  min-height: 280px;
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 12px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.editor-panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #a0a0a0;
+  font-size: 13px;
+}
+
+.editor-meta code {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #8ea1ff;
+  padding: 4px 8px;
+}
+
+.editor-meta select {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  padding: 6px 10px;
+}
+
+.editor-actions {
+  padding: 0 20px 20px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-actions {
+  padding: 0;
+}
+
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1200;
+}
+
+.toast {
+  min-width: 220px;
+  max-width: 420px;
+  background: #1f1f1f;
+  border: 1px solid #333;
+  border-left-width: 4px;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 10px 12px;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-success {
+  border-left-color: #23a559;
+}
+
+.toast-error {
+  border-left-color: #ed4245;
+}
+
+.toast-info {
+  border-left-color: #5865f2;
+}
+
+.row-live-new {
+  animation: rowFlashNew 2.4s ease-out;
+}
+
+.row-live-edit {
+  animation: rowFlashEdit 2.4s ease-out;
+}
+
+.row-live-move {
+  animation: rowFlashMove 2.4s ease-out;
+}
+
+@keyframes rowFlashNew {
+  0% { background: rgba(35, 165, 89, 0.4); }
+  100% { background: transparent; }
+}
+
+@keyframes rowFlashEdit {
+  0% { background: rgba(88, 101, 242, 0.4); }
+  100% { background: transparent; }
+}
+
+@keyframes rowFlashMove {
+  0% { background: rgba(250, 166, 26, 0.4); }
+  100% { background: transparent; }
+}
+
+.event-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.event-badge-new {
+  background: rgba(35, 165, 89, 0.2);
+  color: #3ad178;
+}
+
+.event-badge-edit {
+  background: rgba(88, 101, 242, 0.2);
+  color: #8ea1ff;
+}
+
+.event-badge-delete {
+  background: rgba(237, 66, 69, 0.2);
+  color: #ff7d7f;
+}
+
+.event-badge-move {
+  background: rgba(250, 166, 26, 0.2);
+  color: #ffbe63;
+}
+
+.live-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.db-explorer-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 0;
+}
+
+.db-tree-panel {
+  border-right: 1px solid #2a2a2a;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-tree-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.db-tree-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.db-tree-body {
+  flex: 1;
+  overflow: auto;
+  max-height: calc(100vh - 360px);
+  padding: 8px 0;
+}
+
+.db-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+}
+
+.db-tree-row:hover {
+  background: #202020;
+}
+
+.db-tree-row.selected {
+  background: #1d2338;
+  border-left-color: #5865f2;
+}
+
+.db-tree-toggle {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa0b6;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.db-tree-toggle:hover {
+  background: #2b2f3f;
+  color: #d6dcff;
+}
+
+.db-tree-toggle.placeholder {
+  cursor: default;
+  color: #4e4e4e;
+}
+
+.db-tree-label {
+  border: none;
+  background: transparent;
+  color: #d6d6d6;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  padding: 0;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-tree-label:hover {
+  color: #ffffff;
+}
+
+.db-tree-kind {
+  margin-left: auto;
+  color: #8a8a8a;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.db-editor-panel {
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .db-explorer-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .db-tree-panel {
+    border-right: none;
+    border-bottom: 1px solid #2a2a2a;
+    min-height: 260px;
+  }
+}
 </style>
 </head>
 <body>
@@ -392,34 +670,39 @@ td {
       Admin Panel
     </div>
     
-    <div class="nav-item active" onclick="showSection('overview')">
+    <div class="nav-item active" data-section="overview" onclick="showSection('overview', this)">
       <i class="fas fa-chart-line"></i>
       Overview
     </div>
     
-    <div class="nav-item" onclick="showSection('servers')">
+    <div class="nav-item" data-section="servers" onclick="showSection('servers', this)">
       <i class="fas fa-server"></i>
       Servers
     </div>
     
-    <div class="nav-item" onclick="showSection('users')">
+    <div class="nav-item" data-section="users" onclick="showSection('users', this)">
       <i class="fas fa-users"></i>
       Users
     </div>
     
-    <div class="nav-item" onclick="showSection('messages')">
+    <div class="nav-item" data-section="messages" onclick="showSection('messages', this)">
       <i class="fas fa-comments"></i>
       Messages
     </div>
     
-    <div class="nav-item" onclick="showSection('dms')">
+    <div class="nav-item" data-section="dms" onclick="showSection('dms', this)">
       <i class="fas fa-envelope"></i>
       Direct Messages
     </div>
     
-    <div class="nav-item" onclick="showSection('channels')">
+    <div class="nav-item" data-section="channels" onclick="showSection('channels', this)">
       <i class="fas fa-hashtag"></i>
       Channels
+    </div>
+
+    <div class="nav-item" data-section="dbExplorer" onclick="showSection('dbExplorer', this)">
+      <i class="fas fa-database"></i>
+      DB Explorer
     </div>
   </div>
 
@@ -454,6 +737,34 @@ td {
           <i class="fas fa-hashtag stat-icon"></i>
           <div class="stat-label">Total Channels</div>
           <div class="stat-value" id="totalChannels">-</div>
+        </div>
+      </div>
+
+      <div class="data-table">
+        <div class="table-header">
+          <h2>Live Activity</h2>
+          <div class="live-legend">
+            <span class="event-badge event-badge-new">New</span>
+            <span class="event-badge event-badge-edit">Edit</span>
+            <span class="event-badge event-badge-delete">Delete</span>
+            <span class="event-badge event-badge-move">Move</span>
+          </div>
+        </div>
+        <div class="table-wrapper" style="max-height: 300px;">
+          <table id="activityTable">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Section</th>
+                <th>Item</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody id="activityBody">
+              <tr><td colspan="5" class="loading">Waiting for realtime activity...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -537,9 +848,9 @@ td {
 
       <div class="data-table">
         <div class="filter-bar">
-          <button class="filter-btn active" onclick="setMessageFilter('all')">All Messages</button>
-          <button class="filter-btn" onclick="setMessageFilter('today')">Today</button>
-          <button class="filter-btn" onclick="setMessageFilter('week')">This Week</button>
+          <button class="filter-btn active" onclick="setMessageFilter('all', this)">All Messages</button>
+          <button class="filter-btn" onclick="setMessageFilter('today', this)">Today</button>
+          <button class="filter-btn" onclick="setMessageFilter('week', this)">This Week</button>
         </div>
         
         <div class="table-header">
@@ -639,6 +950,64 @@ td {
         </div>
       </div>
     </div>
+
+    <!-- DB Explorer Section -->
+    <div class="section" id="dbExplorer">
+      <div class="header">
+        <h1>Database Explorer</h1>
+        <p>Load, edit, save, and delete any realtime DB path</p>
+      </div>
+
+      <div class="data-table">
+        <div class="db-explorer-layout">
+          <div class="db-tree-panel">
+            <div class="db-tree-header">
+              <h2 style="font-size:16px;">Tree Browser</h2>
+              <div class="db-tree-actions">
+                <button class="action-btn btn-view" onclick="refreshExplorerTree()">Refresh</button>
+                <button class="action-btn btn-view" onclick="collapseExplorerTree()">Collapse</button>
+              </div>
+            </div>
+            <div class="db-tree-body" id="dbTreeBody">
+              <div class="loading">Loading tree...</div>
+            </div>
+          </div>
+
+          <div class="db-editor-panel">
+            <div class="table-header">
+              <h2>Path Editor</h2>
+              <div class="search-box" style="min-width: 360px; width: min(100%, 560px);">
+                <i class="fas fa-database"></i>
+                <input type="text" id="dbPathInput" placeholder="Path is optional. Click nodes in tree to load.">
+              </div>
+            </div>
+            <div class="editor-panel">
+              <div class="editor-meta">
+                <span>Selected Path</span>
+                <code id="dbSelectedPath">/</code>
+              </div>
+              <div class="editor-meta">
+                <span>Loaded Path</span>
+                <code id="dbLoadedPath">-</code>
+              </div>
+              <div class="editor-meta">
+                <span>Save Mode</span>
+                <select id="dbSaveMode">
+                  <option value="set">set (replace value)</option>
+                  <option value="update">update (merge object)</option>
+                </select>
+              </div>
+              <textarea id="dbJsonEditor" class="json-editor" spellcheck="false">null</textarea>
+            </div>
+            <div class="editor-actions">
+              <button class="action-btn btn-view" onclick="loadExplorerPath()">Load Path</button>
+              <button class="action-btn btn-view" onclick="saveExplorerPath()">Save Path</button>
+              <button class="action-btn btn-delete" onclick="deleteExplorerPath()">Delete Path</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -653,8 +1022,9 @@ td {
   </div>
 </div>
 
+<div class="toast-container" id="toastContainer"></div>
+
 <script>
-// Firebase Config
 const firebaseConfig = {
   apiKey: "AIzaSyA4BYjOa__uKZjOBvS5p_uMxmJ6AMsKcpg",
   authDomain: "chat1-6cc2e.firebaseapp.com",
@@ -665,481 +1035,1170 @@ const firebaseConfig = {
   appId: "1:771765903902:web:a6fb2e71b059c20ba7840f"
 };
 
+if (!window.firebase || typeof window.firebase.initializeApp !== 'function') {
+  throw new Error('Realtime bridge not loaded. Make sure js/supabase-realtime-bridge.js is available.');
+}
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 let currentMessageFilter = 'all';
+let modalPath = '';
+let explorerLoadedPath = '';
 
-function showSection(section) {
-  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById(section).classList.add('active');
-  event.target.closest('.nav-item').classList.add('active');
-  
-  if (section === 'servers') loadServers();
-  else if (section === 'users') loadUsers();
-  else if (section === 'messages') loadMessages();
-  else if (section === 'dms') loadDMs();
-  else if (section === 'channels') loadChannels();
+const sectionLoaders = {
+  servers: loadServers,
+  users: loadUsers,
+  messages: loadMessages,
+  dms: loadDMs,
+  channels: loadChannels
+};
+
+const sectionLabels = {
+  servers: 'Servers',
+  users: 'Users',
+  messages: 'Messages',
+  dms: 'DMs',
+  channels: 'Channels'
+};
+
+const liveSectionState = {};
+const liveEvents = [];
+const liveSubscriptions = [];
+const LIVE_SYNC_ROOTS = ['servers', 'profiles', 'dms'];
+let liveRefreshTimer = null;
+let liveRefreshRunning = false;
+let liveRefreshQueued = false;
+const liveChangedRoots = new Set();
+const explorerTreeState = {
+  selectedPath: '',
+  expanded: new Set(['']),
+  nodes: new Map()
+};
+let explorerTreeInitialized = false;
+
+function normalizePath(path) {
+  return String(path || '').trim().replace(/^\/+|\/+$/g, '');
 }
 
-function loadStats() {
-  db.ref('servers').once('value', snap => {
-    const servers = snap.val() || {};
-    document.getElementById('totalServers').textContent = Object.keys(servers).length;
-    
-    let totalChannels = 0;
-    Object.values(servers).forEach(server => {
-      if (server.channels) totalChannels += Object.keys(server.channels).length;
-      if (server.voiceChannels) totalChannels += Object.keys(server.voiceChannels).length;
+function formatPath(path) {
+  const clean = normalizePath(path);
+  return clean ? `/${clean}` : '/';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
+function formatDate(timestamp) {
+  if (!timestamp) return 'Unknown';
+  const date = new Date(Number(timestamp));
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString();
+}
+
+function prettyJson(value) {
+  return JSON.stringify(value === undefined ? null : value, null, 2);
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 220);
+  }, 3200);
+}
+
+function createActionButton(label, className, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `action-btn ${className}`;
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function appendCell(row, html) {
+  const td = document.createElement('td');
+  td.innerHTML = html;
+  row.appendChild(td);
+  return td;
+}
+
+function getPathKey(path) {
+  const clean = normalizePath(path);
+  if (!clean) return '/';
+  const parts = clean.split('/');
+  return parts[parts.length - 1] || '/';
+}
+
+function getValueKind(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+function isExpandableValue(value) {
+  return value !== null && typeof value === 'object';
+}
+
+function getChildKeys(value) {
+  if (!isExpandableValue(value)) return [];
+  return Object.keys(value).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function getTreeNode(path) {
+  return explorerTreeState.nodes.get(normalizePath(path));
+}
+
+function setTreeNode(path, value, options = {}) {
+  const cleanPath = normalizePath(path);
+  const loadedChildren = !!options.loadedChildren;
+  const kind = getValueKind(value);
+  const expandable = isExpandableValue(value);
+  const childKeys = expandable && loadedChildren ? getChildKeys(value) : [];
+  const existing = getTreeNode(cleanPath) || {};
+
+  const nextNode = {
+    ...existing,
+    path: cleanPath,
+    key: getPathKey(cleanPath),
+    kind,
+    expandable,
+    loadedChildren: expandable ? loadedChildren : true,
+    childKeys
+  };
+  explorerTreeState.nodes.set(cleanPath, nextNode);
+
+  if (expandable && loadedChildren) {
+    childKeys.forEach((childKey) => {
+      const childPath = cleanPath ? `${cleanPath}/${childKey}` : childKey;
+      const childValue = value[childKey];
+      const childKind = getValueKind(childValue);
+      const childExpandable = isExpandableValue(childValue);
+      const existingChild = getTreeNode(childPath) || {};
+      explorerTreeState.nodes.set(childPath, {
+        ...existingChild,
+        path: childPath,
+        key: childKey,
+        kind: childKind,
+        expandable: childExpandable,
+        loadedChildren: childExpandable ? !!existingChild.loadedChildren : true,
+        childKeys: childExpandable && Array.isArray(existingChild.childKeys) ? existingChild.childKeys : []
+      });
     });
-    document.getElementById('totalChannels').textContent = totalChannels;
+  }
+}
+
+function updateExplorerSelectionUI() {
+  const selectedPath = explorerTreeState.selectedPath;
+  const selectedLabel = document.getElementById('dbSelectedPath');
+  const pathInput = document.getElementById('dbPathInput');
+  if (selectedLabel) selectedLabel.textContent = formatPath(selectedPath);
+  if (pathInput && document.activeElement !== pathInput) {
+    pathInput.value = selectedPath;
+  }
+}
+
+async function ensureExplorerNodeLoaded(path, options = {}) {
+  const cleanPath = normalizePath(path);
+  const node = getTreeNode(cleanPath);
+  if (node && node.loadedChildren) return;
+
+  const value = await readPathValue(cleanPath);
+  setTreeNode(cleanPath, value, { loadedChildren: true });
+  if (!options.silent) {
+    renderExplorerTree();
+  }
+}
+
+function appendTreeRow(fragment, path, depth) {
+  const node = getTreeNode(path);
+  if (!node) return;
+
+  const row = document.createElement('div');
+  row.className = 'db-tree-row';
+  if (explorerTreeState.selectedPath === path) {
+    row.classList.add('selected');
+  }
+  row.style.paddingLeft = `${10 + (depth * 14)}px`;
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'db-tree-toggle';
+  if (node.expandable) {
+    toggle.textContent = explorerTreeState.expanded.has(path) ? '▾' : '▸';
+    toggle.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (explorerTreeState.expanded.has(path)) {
+        explorerTreeState.expanded.delete(path);
+        renderExplorerTree();
+        return;
+      }
+      explorerTreeState.expanded.add(path);
+      try {
+        await ensureExplorerNodeLoaded(path, { silent: true });
+        renderExplorerTree();
+      } catch (err) {
+        showToast(`Failed to open ${formatPath(path)}: ${err.message}`, 'error');
+      }
+    });
+  } else {
+    toggle.textContent = '•';
+    toggle.classList.add('placeholder');
+  }
+  row.appendChild(toggle);
+
+  const label = document.createElement('button');
+  label.type = 'button';
+  label.className = 'db-tree-label';
+  label.textContent = node.key;
+  label.addEventListener('click', async () => {
+    explorerTreeState.selectedPath = path;
+    updateExplorerSelectionUI();
+    renderExplorerTree();
+    await loadExplorerPath(path);
   });
-  
-  db.ref('profiles').once('value', snap => {
-    const profiles = snap.val() || {};
-    document.getElementById('totalUsers').textContent = Object.keys(profiles).length;
+  row.appendChild(label);
+
+  const kind = document.createElement('span');
+  kind.className = 'db-tree-kind';
+  kind.textContent = node.kind;
+  row.appendChild(kind);
+
+  fragment.appendChild(row);
+
+  if (node.expandable && explorerTreeState.expanded.has(path)) {
+    if (!node.loadedChildren) {
+      const loading = document.createElement('div');
+      loading.className = 'db-tree-row';
+      loading.style.paddingLeft = `${10 + ((depth + 1) * 14)}px`;
+      loading.innerHTML = '<span class="db-tree-kind">loading...</span>';
+      fragment.appendChild(loading);
+      return;
+    }
+
+    node.childKeys.forEach((childKey) => {
+      const childPath = path ? `${path}/${childKey}` : childKey;
+      appendTreeRow(fragment, childPath, depth + 1);
+    });
+  }
+}
+
+function renderExplorerTree() {
+  const treeBody = document.getElementById('dbTreeBody');
+  if (!treeBody) return;
+
+  const rootNode = getTreeNode('');
+  if (!rootNode) {
+    treeBody.innerHTML = '<div class="loading">Loading tree...</div>';
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  const rootRow = document.createElement('div');
+  rootRow.className = 'db-tree-row';
+  if (explorerTreeState.selectedPath === '') rootRow.classList.add('selected');
+
+  const rootToggle = document.createElement('button');
+  rootToggle.type = 'button';
+  rootToggle.className = 'db-tree-toggle';
+  rootToggle.textContent = explorerTreeState.expanded.has('') ? '▾' : '▸';
+  rootToggle.addEventListener('click', async () => {
+    if (explorerTreeState.expanded.has('')) {
+      explorerTreeState.expanded.delete('');
+      renderExplorerTree();
+      return;
+    }
+    explorerTreeState.expanded.add('');
+    await ensureExplorerNodeLoaded('', { silent: true });
+    renderExplorerTree();
   });
-  
-  db.ref('servers').once('value', snap => {
-    const servers = snap.val() || {};
+  rootRow.appendChild(rootToggle);
+
+  const rootLabel = document.createElement('button');
+  rootLabel.type = 'button';
+  rootLabel.className = 'db-tree-label';
+  rootLabel.textContent = '/ (root)';
+  rootLabel.addEventListener('click', async () => {
+    explorerTreeState.selectedPath = '';
+    updateExplorerSelectionUI();
+    renderExplorerTree();
+    await loadExplorerPath('');
+  });
+  rootRow.appendChild(rootLabel);
+
+  const rootKind = document.createElement('span');
+  rootKind.className = 'db-tree-kind';
+  rootKind.textContent = rootNode.kind;
+  rootRow.appendChild(rootKind);
+  fragment.appendChild(rootRow);
+
+  if (explorerTreeState.expanded.has('')) {
+    if (!rootNode.loadedChildren) {
+      const loading = document.createElement('div');
+      loading.className = 'db-tree-row';
+      loading.style.paddingLeft = '24px';
+      loading.innerHTML = '<span class="db-tree-kind">loading...</span>';
+      fragment.appendChild(loading);
+    } else {
+      rootNode.childKeys.forEach((childKey) => {
+        appendTreeRow(fragment, childKey, 1);
+      });
+    }
+  }
+
+  treeBody.innerHTML = '';
+  treeBody.appendChild(fragment);
+}
+
+async function refreshExplorerTree(options = {}) {
+  const preserve = options.preserve !== false;
+  const silent = !!options.silent;
+  const previousExpanded = preserve ? Array.from(explorerTreeState.expanded) : [''];
+  const previousSelected = preserve ? explorerTreeState.selectedPath : '';
+
+  try {
+    explorerTreeState.nodes = new Map();
+    explorerTreeState.expanded = new Set(previousExpanded.length ? previousExpanded : ['']);
+    if (!explorerTreeState.expanded.has('')) explorerTreeState.expanded.add('');
+
+    const rootValue = await readPathValue('');
+    setTreeNode('', rootValue, { loadedChildren: true });
+
+    const expandedPaths = Array.from(explorerTreeState.expanded)
+      .filter((path) => normalizePath(path))
+      .sort((a, b) => a.split('/').length - b.split('/').length);
+
+    for (const path of expandedPaths) {
+      const parentPath = normalizePath(path.split('/').slice(0, -1).join('/'));
+      if (parentPath && !getTreeNode(parentPath)) continue;
+      await ensureExplorerNodeLoaded(path, { silent: true });
+    }
+
+    explorerTreeInitialized = true;
+    explorerTreeState.selectedPath = normalizePath(previousSelected);
+    if (!getTreeNode(explorerTreeState.selectedPath)) {
+      explorerTreeState.selectedPath = '';
+    }
+    updateExplorerSelectionUI();
+    renderExplorerTree();
+  } catch (err) {
+    const treeBody = document.getElementById('dbTreeBody');
+    if (treeBody) {
+      treeBody.innerHTML = `<div class="loading">Failed to load tree: ${escapeHtml(err.message)}</div>`;
+    }
+    if (!silent) {
+      showToast(`Failed to refresh tree: ${err.message}`, 'error');
+    }
+  }
+}
+
+function collapseExplorerTree() {
+  explorerTreeState.expanded = new Set(['']);
+  renderExplorerTree();
+}
+
+function getRootPath(path) {
+  const clean = normalizePath(path);
+  if (!clean) return '';
+  return clean.split('/')[0] || '';
+}
+
+function stableSerialize(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  const pairs = keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`);
+  return `{${pairs.join(',')}}`;
+}
+
+function makeSignature(value) {
+  try {
+    return stableSerialize(value);
+  } catch (_err) {
+    return String(value ?? '');
+  }
+}
+
+function applyRowLiveClass(row, changeType) {
+  if (!changeType) return;
+  row.classList.add(`row-live-${changeType}`);
+}
+
+function formatTime(timeMs) {
+  return new Date(timeMs).toLocaleTimeString();
+}
+
+function renderActivityFeed() {
+  const tbody = document.getElementById('activityBody');
+  if (!tbody) return;
+
+  if (!liveEvents.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="loading">Waiting for realtime activity...</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  liveEvents.slice(0, 200).forEach((entry) => {
+    const row = document.createElement('tr');
+    appendCell(row, escapeHtml(formatTime(entry.time)));
+    appendCell(row, `<span class="event-badge event-badge-${entry.type}">${escapeHtml(entry.type)}</span>`);
+    appendCell(row, escapeHtml(entry.sectionLabel));
+    appendCell(row, escapeHtml(entry.label || '-'));
+    appendCell(row, `<code>${escapeHtml(formatPath(entry.path || ''))}</code>`);
+    tbody.appendChild(row);
+  });
+}
+
+function pushLiveEvent(type, section, label, path) {
+  liveEvents.unshift({
+    time: Date.now(),
+    type,
+    section,
+    sectionLabel: sectionLabels[section] || section,
+    label,
+    path
+  });
+
+  if (liveEvents.length > 300) {
+    liveEvents.length = 300;
+  }
+  renderActivityFeed();
+}
+
+function diffSectionRows(section, items) {
+  const previous = liveSectionState[section] || {
+    initialized: false,
+    signatures: new Map(),
+    order: [],
+    meta: new Map()
+  };
+
+  const nextSignatures = new Map();
+  const nextOrder = [];
+  const nextMeta = new Map();
+  const previousIndex = new Map(previous.order.map((key, index) => [key, index]));
+  const rowChanges = new Map();
+  let events = [];
+  const isInitial = !previous.initialized;
+
+  items.forEach((item, index) => {
+    nextSignatures.set(item.key, item.signature);
+    nextOrder.push(item.key);
+    nextMeta.set(item.key, { label: item.label, path: item.path });
+
+    if (isInitial) return;
+    if (!previous.signatures.has(item.key)) {
+      rowChanges.set(item.key, 'new');
+      events.push({ type: 'new', label: item.label, path: item.path });
+      return;
+    }
+
+    const previousSignature = previous.signatures.get(item.key);
+    if (previousSignature !== item.signature) {
+      rowChanges.set(item.key, 'edit');
+      events.push({ type: 'edit', label: item.label, path: item.path });
+      return;
+    }
+
+    const oldIndex = previousIndex.get(item.key);
+    if (oldIndex !== undefined && oldIndex !== index) {
+      rowChanges.set(item.key, 'move');
+      events.push({ type: 'move', label: item.label, path: item.path });
+    }
+  });
+
+  if (!isInitial) {
+    previous.order.forEach((key) => {
+      if (nextSignatures.has(key)) return;
+      const meta = previous.meta.get(key) || {};
+      events.push({ type: 'delete', label: meta.label || key, path: meta.path || '' });
+    });
+
+    const moveCount = events.filter((eventInfo) => eventInfo.type === 'move').length;
+    const hasAddOrDelete = events.some((eventInfo) => eventInfo.type === 'new' || eventInfo.type === 'delete');
+    if (hasAddOrDelete && moveCount > 8) {
+      events = events.filter((eventInfo) => eventInfo.type !== 'move');
+      rowChanges.forEach((changeType, key) => {
+        if (changeType === 'move') rowChanges.delete(key);
+      });
+    }
+  }
+
+  liveSectionState[section] = {
+    initialized: true,
+    signatures: nextSignatures,
+    order: nextOrder,
+    meta: nextMeta
+  };
+
+  return { rowChanges, events };
+}
+
+function applySectionDiff(section, diff) {
+  if (!diff || !Array.isArray(diff.events) || !diff.events.length) return;
+  diff.events.forEach((eventInfo) => {
+    pushLiveEvent(eventInfo.type, section, eventInfo.label, eventInfo.path);
+  });
+}
+
+function queueLiveRefresh(changedPath = '') {
+  const root = getRootPath(changedPath);
+  if (root) liveChangedRoots.add(root);
+  if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+  liveRefreshTimer = setTimeout(() => {
+    liveRefreshTimer = null;
+    runLiveRefresh().catch((err) => showToast(`Live refresh failed: ${err.message}`, 'error'));
+  }, 220);
+}
+
+async function runLiveRefresh() {
+  if (liveRefreshRunning) {
+    liveRefreshQueued = true;
+    return;
+  }
+  liveRefreshRunning = true;
+
+  const changedRoots = new Set(liveChangedRoots);
+  liveChangedRoots.clear();
+  try {
+    await refreshAllSections();
+    await refreshOpenEditors(changedRoots);
+  } finally {
+    liveRefreshRunning = false;
+    if (liveRefreshQueued || liveChangedRoots.size) {
+      liveRefreshQueued = false;
+      queueLiveRefresh();
+    }
+  }
+}
+
+async function refreshOpenEditors(changedRoots) {
+  if (modalPath) {
+    const modalRoot = getRootPath(modalPath);
+    const modalEditor = document.getElementById('modalJsonEditor');
+    if (changedRoots.has(modalRoot) && document.activeElement !== modalEditor) {
+      await reloadModalPath({ silent: true });
+    }
+  }
+
+  if (explorerLoadedPath) {
+    const explorerRoot = getRootPath(explorerLoadedPath);
+    const explorerEditor = document.getElementById('dbJsonEditor');
+    if (changedRoots.has(explorerRoot) && document.activeElement !== explorerEditor) {
+      try {
+        const value = await readPathValue(explorerLoadedPath);
+        const loadedPath = document.getElementById('dbLoadedPath');
+        if (loadedPath) loadedPath.textContent = formatPath(explorerLoadedPath);
+        if (explorerEditor) explorerEditor.value = prettyJson(value);
+      } catch (_err) {
+        // Ignore transient live-refresh read errors to avoid noisy toasts.
+      }
+    }
+  }
+
+  const explorerSection = document.getElementById('dbExplorer');
+  const explorerVisible = !!explorerSection && explorerSection.classList.contains('active');
+  const selectedRoot = getRootPath(explorerTreeState.selectedPath || explorerLoadedPath);
+  const shouldRefreshTree = explorerVisible && (
+    changedRoots.has('mutation') ||
+    !selectedRoot ||
+    changedRoots.has(selectedRoot)
+  );
+  if (shouldRefreshTree) {
+    await refreshExplorerTree({ preserve: true, silent: true });
+  }
+}
+
+async function refreshAllSections() {
+  await Promise.all([
+    loadStats(),
+    loadServers(),
+    loadUsers(),
+    loadMessages(),
+    loadDMs(),
+    loadChannels()
+  ]);
+}
+
+function startLiveSync() {
+  stopLiveSync();
+  LIVE_SYNC_ROOTS.forEach((path) => {
+    const ref = db.ref(path);
+    const handler = () => queueLiveRefresh(path);
+    ref.on('value', handler);
+    liveSubscriptions.push({ ref, handler });
+  });
+}
+
+function stopLiveSync() {
+  while (liveSubscriptions.length) {
+    const subscription = liveSubscriptions.pop();
+    subscription.ref.off('value', subscription.handler);
+  }
+}
+
+async function readPathValue(path) {
+  const cleanPath = normalizePath(path);
+  const snap = await db.ref(cleanPath).once('value');
+  return snap.val();
+}
+
+async function writePathValue(path, value, mode) {
+  const cleanPath = normalizePath(path);
+  if (!cleanPath) throw new Error('Path is required');
+  if (mode === 'update' && !isPlainObject(value)) {
+    throw new Error('Update mode requires a JSON object');
+  }
+  await db.ref(cleanPath)[mode](value);
+}
+
+async function removePathValue(path) {
+  const cleanPath = normalizePath(path);
+  if (!cleanPath) throw new Error('Root delete is blocked');
+  await db.ref(cleanPath).remove();
+}
+
+async function refreshAfterMutation() {
+  queueLiveRefresh('mutation');
+}
+
+function showSection(section, navEl) {
+  document.querySelectorAll('.section').forEach((sec) => sec.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
+
+  const targetSection = document.getElementById(section);
+  if (!targetSection) return;
+  targetSection.classList.add('active');
+
+  if (navEl) {
+    navEl.classList.add('active');
+  } else {
+    const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
+    if (navItem) navItem.classList.add('active');
+  }
+
+  if (sectionLoaders[section]) {
+    sectionLoaders[section]().catch((err) => showToast(`Failed to load ${section}: ${err.message}`, 'error'));
+  }
+
+  if (section === 'dbExplorer') {
+    const treeInit = explorerTreeInitialized
+      ? Promise.resolve(renderExplorerTree())
+      : refreshExplorerTree({ preserve: true, silent: false });
+    Promise.resolve(treeInit).catch((err) => showToast(`Failed to load db explorer: ${err.message}`, 'error'));
+  }
+}
+
+async function loadStats() {
+  try {
+    const [serversSnap, profilesSnap] = await Promise.all([
+      db.ref('servers').once('value'),
+      db.ref('profiles').once('value')
+    ]);
+
+    const servers = serversSnap.val() || {};
+    const profiles = profilesSnap.val() || {};
+
+    let totalChannels = 0;
     let totalMessages = 0;
-    Object.values(servers).forEach(server => {
-      if (server.channels_data) {
-        Object.values(server.channels_data).forEach(channel => {
-          if (channel.messages) totalMessages += Object.keys(channel.messages).length;
+
+    Object.values(servers).forEach((server) => {
+      if (server?.channels) totalChannels += Object.keys(server.channels).length;
+      if (server?.voiceChannels) totalChannels += Object.keys(server.voiceChannels).length;
+      if (server?.channels_data) {
+        Object.values(server.channels_data).forEach((channel) => {
+          if (channel?.messages) totalMessages += Object.keys(channel.messages).length;
         });
       }
     });
+
+    document.getElementById('totalServers').textContent = Object.keys(servers).length;
+    document.getElementById('totalUsers').textContent = Object.keys(profiles).length;
+    document.getElementById('totalChannels').textContent = totalChannels;
     document.getElementById('totalMessages').textContent = totalMessages;
-  });
+  } catch (err) {
+    showToast(`Failed to load stats: ${err.message}`, 'error');
+  }
 }
 
-function loadServers() {
-  db.ref('servers').once('value', snap => {
-    const servers = snap.val() || {};
-    const tbody = document.getElementById('serversBody');
-    
-    if (Object.keys(servers).length === 0) {
+async function loadServers() {
+  const tbody = document.getElementById('serversBody');
+  try {
+    const servers = (await readPathValue('servers')) || {};
+    const serverEntries = Object.entries(servers);
+    const diff = diffSectionRows('servers', serverEntries.map(([serverId, server]) => ({
+      key: serverId,
+      signature: makeSignature(server),
+      label: server?.name || serverId,
+      path: `servers/${serverId}`
+    })));
+    applySectionDiff('servers', diff);
+
+    if (!serverEntries.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No servers found</td></tr>';
       return;
     }
-    
+
     tbody.innerHTML = '';
-    Object.entries(servers).forEach(([id, server]) => {
-      const memberCount = server.members ? Object.keys(server.members).length : 0;
-      const created = server.createdAt ? new Date(server.createdAt).toLocaleDateString() : 'Unknown';
-      
+    serverEntries.forEach(([serverId, server]) => {
       const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>
-          <span class="server-icon">${(server.name || 'S').charAt(0).toUpperCase()}</span>
-          ${server.name || 'Unnamed Server'}
-        </td>
-        <td>${memberCount}</td>
-        <td>${server.ownerId ? server.ownerId.substring(0, 8) + '...' : 'Unknown'}</td>
-        <td>${created}</td>
-        <td>
-          <button class="action-btn btn-view" onclick="viewServer('${id}')">View</button>
-          <button class="action-btn btn-delete" onclick="deleteServer('${id}')">Delete</button>
-        </td>
-      `;
+      const serverName = server?.name || 'Unnamed Server';
+      const memberCount = server?.members ? Object.keys(server.members).length : 0;
+      const created = server?.createdAt ? new Date(server.createdAt).toLocaleDateString() : 'Unknown';
+
+      appendCell(row, `<span class="server-icon">${escapeHtml(serverName.charAt(0).toUpperCase())}</span>${escapeHtml(serverName)}`);
+      appendCell(row, String(memberCount));
+      appendCell(row, escapeHtml(server?.ownerId ? `${server.ownerId.slice(0, 8)}...` : 'Unknown'));
+      appendCell(row, escapeHtml(created));
+
+      const actionsCell = document.createElement('td');
+      actionsCell.appendChild(createActionButton('Edit', 'btn-view', () => openPathEditor(`servers/${serverId}`, `Server: ${serverName}`)));
+      actionsCell.appendChild(createActionButton('Delete', 'btn-delete', () => deleteServer(serverId)));
+      row.appendChild(actionsCell);
+      applyRowLiveClass(row, diff.rowChanges.get(serverId));
       tbody.appendChild(row);
     });
-  });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Failed to load servers: ${escapeHtml(err.message)}</td></tr>`;
+  }
 }
 
-function loadUsers() {
-  db.ref('profiles').once('value', snap => {
-    const profiles = snap.val() || {};
-    const tbody = document.getElementById('usersBody');
-    
-    if (Object.keys(profiles).length === 0) {
+async function loadUsers() {
+  const tbody = document.getElementById('usersBody');
+  try {
+    const profiles = (await readPathValue('profiles')) || {};
+    const userEntries = Object.entries(profiles);
+    const diff = diffSectionRows('users', userEntries.map(([uid, profile]) => ({
+      key: uid,
+      signature: makeSignature(profile),
+      label: profile?.username || uid,
+      path: `profiles/${uid}`
+    })));
+    applySectionDiff('users', diff);
+
+    if (!userEntries.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No users found</td></tr>';
       return;
     }
-    
+
     tbody.innerHTML = '';
-    Object.entries(profiles).forEach(([uid, profile]) => {
-      const isOnline = profile.lastSeen && (Date.now() - profile.lastSeen < 60000);
-      const lastSeen = profile.lastSeen ? new Date(profile.lastSeen).toLocaleString() : 'Never';
-      
+    userEntries.forEach(([uid, profile]) => {
       const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>
-          <span class="user-avatar">${(profile.username || 'U').charAt(0).toUpperCase()}</span>
-          ${profile.username || 'Unknown'}
-        </td>
-        <td><span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${profile.status || 'offline'}</span></td>
-        <td>${(profile.bio || 'No bio').substring(0, 50)}</td>
-        <td>${lastSeen}</td>
-        <td>
-          <button class="action-btn btn-view" onclick="viewUser('${uid}')">View</button>
-          <button class="action-btn btn-delete" onclick="deleteUser('${uid}')">Delete</button>
-        </td>
-      `;
+      const username = profile?.username || 'Unknown';
+      const isOnline = profile?.lastSeen && (Date.now() - profile.lastSeen < 60000);
+      const lastSeen = profile?.lastSeen ? new Date(profile.lastSeen).toLocaleString() : 'Never';
+      const bio = (profile?.bio || 'No bio').slice(0, 60);
+
+      appendCell(row, `<span class="user-avatar">${escapeHtml(username.charAt(0).toUpperCase())}</span>${escapeHtml(username)}`);
+      appendCell(row, `<span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${escapeHtml(profile?.status || 'offline')}</span>`);
+      appendCell(row, escapeHtml(bio));
+      appendCell(row, escapeHtml(lastSeen));
+
+      const actionsCell = document.createElement('td');
+      actionsCell.appendChild(createActionButton('Edit', 'btn-view', () => openPathEditor(`profiles/${uid}`, `User: ${username}`)));
+      actionsCell.appendChild(createActionButton('Delete', 'btn-delete', () => deleteUser(uid)));
+      row.appendChild(actionsCell);
+      applyRowLiveClass(row, diff.rowChanges.get(uid));
       tbody.appendChild(row);
     });
-  });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Failed to load users: ${escapeHtml(err.message)}</td></tr>`;
+  }
 }
 
-function loadMessages() {
-  db.ref('servers').once('value', snap => {
-    const servers = snap.val() || {};
-    const tbody = document.getElementById('messagesBody');
+async function loadMessages() {
+  const tbody = document.getElementById('messagesBody');
+  try {
+    const servers = (await readPathValue('servers')) || {};
     const messages = [];
-    
+
     Object.entries(servers).forEach(([serverId, server]) => {
-      if (server.channels_data) {
-        Object.entries(server.channels_data).forEach(([channelName, channelData]) => {
-          if (channelData.messages) {
-            Object.entries(channelData.messages).forEach(([msgId, msg]) => {
-              messages.push({
-                serverId,
-                serverName: server.name || 'Unknown',
-                channelName,
-                msgId,
-                ...msg
-              });
-            });
-          }
-        });
-      }
-    });
-    
-    if (messages.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-inbox"></i><br>No messages found</td></tr>';
-      return;
-    }
-    
-    messages.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    
-    const filteredMessages = messages.filter(msg => {
-      if (currentMessageFilter === 'today') {
-        const today = new Date().setHours(0, 0, 0, 0);
-        return msg.timestamp >= today;
-      } else if (currentMessageFilter === 'week') {
-        const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-        return msg.timestamp >= weekAgo;
-      }
-      return true;
-    }).slice(0, 100);
-    
-    tbody.innerHTML = '';
-    filteredMessages.forEach(msg => {
-      const row = document.createElement('tr');
-      const msgPreview = msg.text ? msg.text.substring(0, 50) : (msg.image ? '[Image]' : '[Poll]');
-      const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown';
-      
-      row.innerHTML = `
-        <td>${msg.serverName}</td>
-        <td>#${msg.channelName}</td>
-        <td>${msg.author || 'Unknown'}</td>
-        <td>${msgPreview}</td>
-        <td>${time}</td>
-        <td>
-          <button class="action-btn btn-view" onclick="viewMessage('${msg.serverId}', '${msg.channelName}', '${msg.msgId}')">View</button>
-          <button class="action-btn btn-delete" onclick="deleteMessage('${msg.serverId}', '${msg.channelName}', '${msg.msgId}')">Delete</button>
-        </td>
-      `;
-      tbody.appendChild(row);
-    });
-  });
-}
-
-function loadDMs() {
-  db.ref('dms').once('value', snap => {
-    const dms = snap.val() || {};
-    const tbody = document.getElementById('dmsBody');
-    const messages = [];
-    
-    Object.entries(dms).forEach(([dmId, dm]) => {
-      if (dm.messages) {
-        Object.entries(dm.messages).forEach(([msgId, msg]) => {
+      if (!server?.channels_data) return;
+      Object.entries(server.channels_data).forEach(([channelName, channelData]) => {
+        if (!channelData?.messages) return;
+        Object.entries(channelData.messages).forEach(([msgId, msg]) => {
           messages.push({
-            dmId,
+            serverId,
+            serverName: server?.name || 'Unknown',
+            channelName,
             msgId,
             ...msg
           });
         });
-      }
+      });
     });
-    
-    if (messages.length === 0) {
+
+    const sortedMessages = messages.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    if (!messages.length) {
+      const diff = diffSectionRows('messages', []);
+      applySectionDiff('messages', diff);
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-inbox"></i><br>No messages found</td></tr>';
+      return;
+    }
+
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const diffBaseMessages = sortedMessages.slice(0, 150);
+    const filteredMessages = sortedMessages.filter((msg) => {
+      if (currentMessageFilter === 'today') return (msg.timestamp || 0) >= todayStart;
+      if (currentMessageFilter === 'week') return (msg.timestamp || 0) >= weekAgo;
+      return true;
+    }).slice(0, 150);
+
+    const diff = diffSectionRows('messages', diffBaseMessages.map((msg) => {
+      const messagePath = `servers/${msg.serverId}/channels_data/${msg.channelName}/messages/${msg.msgId}`;
+      return {
+        key: `${msg.serverId}::${msg.channelName}::${msg.msgId}`,
+        signature: makeSignature(msg),
+        label: `${msg.author || 'Unknown'} in #${msg.channelName}`,
+        path: messagePath
+      };
+    }));
+    applySectionDiff('messages', diff);
+
+    tbody.innerHTML = '';
+    filteredMessages.forEach((msg) => {
+      const row = document.createElement('tr');
+      const preview = msg.text ? msg.text.slice(0, 80) : (msg.image ? '[Image]' : '[Attachment]');
+      const messagePath = `servers/${msg.serverId}/channels_data/${msg.channelName}/messages/${msg.msgId}`;
+      const rowKey = `${msg.serverId}::${msg.channelName}::${msg.msgId}`;
+
+      appendCell(row, escapeHtml(msg.serverName));
+      appendCell(row, `#${escapeHtml(msg.channelName)}`);
+      appendCell(row, escapeHtml(msg.author || 'Unknown'));
+      appendCell(row, escapeHtml(preview));
+      appendCell(row, escapeHtml(formatDate(msg.timestamp)));
+
+      const actionsCell = document.createElement('td');
+      actionsCell.appendChild(createActionButton('Edit', 'btn-view', () => openPathEditor(messagePath, 'Message')));
+      actionsCell.appendChild(createActionButton('Delete', 'btn-delete', () => deleteMessage(msg.serverId, msg.channelName, msg.msgId)));
+      row.appendChild(actionsCell);
+      applyRowLiveClass(row, diff.rowChanges.get(rowKey));
+      tbody.appendChild(row);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Failed to load messages: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function loadDMs() {
+  const tbody = document.getElementById('dmsBody');
+  try {
+    const dms = (await readPathValue('dms')) || {};
+    const messages = [];
+
+    Object.entries(dms).forEach(([dmId, dm]) => {
+      if (!dm?.messages) return;
+      Object.entries(dm.messages).forEach(([msgId, msg]) => {
+        messages.push({ dmId, msgId, ...msg });
+      });
+    });
+
+    const sortedMessages = messages.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    if (!messages.length) {
+      const diff = diffSectionRows('dms', []);
+      applySectionDiff('dms', diff);
       tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No DMs found</td></tr>';
       return;
     }
-    
-    messages.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100);
-    
+
+    const renderMessages = sortedMessages.slice(0, 150);
+    const diff = diffSectionRows('dms', renderMessages.map((msg) => {
+      const messagePath = `dms/${msg.dmId}/messages/${msg.msgId}`;
+      return {
+        key: `${msg.dmId}::${msg.msgId}`,
+        signature: makeSignature(msg),
+        label: `${msg.author || 'Unknown'} in ${msg.dmId}`,
+        path: messagePath
+      };
+    }));
+    applySectionDiff('dms', diff);
+
     tbody.innerHTML = '';
-    messages.forEach(msg => {
+    renderMessages.forEach((msg) => {
       const row = document.createElement('tr');
-      const msgPreview = msg.text ? msg.text.substring(0, 50) : '[Image]';
-      const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown';
-      
-      row.innerHTML = `
-        <td>${msg.dmId}</td>
-        <td>${msg.author || 'Unknown'}</td>
-        <td>${msgPreview}</td>
-        <td>${time}</td>
-        <td>
-          <button class="action-btn btn-view" onclick="viewDM('${msg.dmId}', '${msg.msgId}')">View</button>
-          <button class="action-btn btn-delete" onclick="deleteDM('${msg.dmId}', '${msg.msgId}')">Delete</button>
-        </td>
-      `;
+      const preview = msg.text ? msg.text.slice(0, 80) : '[Attachment]';
+      const messagePath = `dms/${msg.dmId}/messages/${msg.msgId}`;
+      const rowKey = `${msg.dmId}::${msg.msgId}`;
+
+      appendCell(row, escapeHtml(msg.dmId));
+      appendCell(row, escapeHtml(msg.author || 'Unknown'));
+      appendCell(row, escapeHtml(preview));
+      appendCell(row, escapeHtml(formatDate(msg.timestamp)));
+
+      const actionsCell = document.createElement('td');
+      actionsCell.appendChild(createActionButton('Edit', 'btn-view', () => openPathEditor(messagePath, 'Direct Message')));
+      actionsCell.appendChild(createActionButton('Delete', 'btn-delete', () => deleteDM(msg.dmId, msg.msgId)));
+      row.appendChild(actionsCell);
+      applyRowLiveClass(row, diff.rowChanges.get(rowKey));
       tbody.appendChild(row);
     });
-  });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Failed to load DMs: ${escapeHtml(err.message)}</td></tr>`;
+  }
 }
 
-function loadChannels() {
-  db.ref('servers').once('value', snap => {
-    const servers = snap.val() || {};
-    const tbody = document.getElementById('channelsBody');
+async function loadChannels() {
+  const tbody = document.getElementById('channelsBody');
+  try {
+    const servers = (await readPathValue('servers')) || {};
     const channels = [];
-    
+
     Object.entries(servers).forEach(([serverId, server]) => {
-      if (server.channels) {
-        Object.keys(server.channels).forEach(channelName => {
+      if (server?.channels) {
+        Object.keys(server.channels).forEach((channelName) => {
           const channelData = server.channels_data?.[channelName] || {};
           channels.push({
+            path: `servers/${serverId}/channels/${channelName}`,
             serverId,
-            serverName: server.name || 'Unknown',
             channelName,
+            serverName: server?.name || 'Unknown',
             type: 'Text',
-            topic: channelData.topic || 'No topic'
+            topic: channelData?.topic || 'No topic'
           });
         });
       }
-      if (server.voiceChannels) {
-        Object.keys(server.voiceChannels).forEach(channelName => {
+      if (server?.voiceChannels) {
+        Object.keys(server.voiceChannels).forEach((channelName) => {
           channels.push({
+            path: `servers/${serverId}/voiceChannels/${channelName}`,
             serverId,
-            serverName: server.name || 'Unknown',
             channelName,
+            serverName: server?.name || 'Unknown',
             type: 'Voice',
             topic: '-'
           });
         });
       }
     });
-    
-    if (channels.length === 0) {
+
+    const diff = diffSectionRows('channels', channels.map((channel) => ({
+      key: `${channel.serverId}::${channel.type}::${channel.channelName}`,
+      signature: makeSignature(channel),
+      label: `${channel.serverName} / ${channel.channelName}`,
+      path: channel.path
+    })));
+    applySectionDiff('channels', diff);
+
+    if (!channels.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-inbox"></i><br>No channels found</td></tr>';
       return;
     }
-    
+
     tbody.innerHTML = '';
-    channels.forEach(channel => {
+    channels.forEach((channel) => {
       const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${channel.type === 'Text' ? '#' : '🔊'} ${channel.channelName}</td>
-        <td>${channel.serverName}</td>
-        <td><span class="badge">${channel.type}</span></td>
-        <td>${channel.topic}</td>
-        <td>
-          <button class="action-btn btn-delete" onclick="deleteChannel('${channel.serverId}', '${channel.channelName}', '${channel.type}')">Delete</button>
-        </td>
-      `;
+      appendCell(row, `${channel.type === 'Text' ? '#' : '🔊'} ${escapeHtml(channel.channelName)}`);
+      appendCell(row, escapeHtml(channel.serverName));
+      appendCell(row, `<span class="badge">${escapeHtml(channel.type)}</span>`);
+      appendCell(row, escapeHtml(channel.topic));
+
+      const actionsCell = document.createElement('td');
+      actionsCell.appendChild(createActionButton('Edit', 'btn-view', () => openPathEditor(channel.path, `Channel: ${channel.channelName}`)));
+      actionsCell.appendChild(createActionButton('Delete', 'btn-delete', () => deleteChannel(channel.serverId, channel.channelName, channel.type)));
+      row.appendChild(actionsCell);
+      applyRowLiveClass(row, diff.rowChanges.get(`${channel.serverId}::${channel.type}::${channel.channelName}`));
       tbody.appendChild(row);
     });
-  });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Failed to load channels: ${escapeHtml(err.message)}</td></tr>`;
+  }
 }
 
 function viewServer(serverId) {
-  db.ref(`servers/${serverId}`).once('value', snap => {
-    const server = snap.val();
-    if (!server) return;
-    
-    const memberCount = server.members ? Object.keys(server.members).length : 0;
-    const channelCount = server.channels ? Object.keys(server.channels).length : 0;
-    
-    document.getElementById('modalTitle').textContent = server.name || 'Server Details';
-    document.getElementById('modalBody').innerHTML = `
-      <div class="detail-row">
-        <div class="detail-label">Server ID</div>
-        <div class="detail-value">${serverId}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Name</div>
-        <div class="detail-value">${server.name || 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Description</div>
-        <div class="detail-value">${server.description || 'No description'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Owner</div>
-        <div class="detail-value">${server.ownerId || 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Members</div>
-        <div class="detail-value">${memberCount}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Channels</div>
-        <div class="detail-value">${channelCount}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Invite Code</div>
-        <div class="detail-value">${server.invite || 'None'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Created</div>
-        <div class="detail-value">${server.createdAt ? new Date(server.createdAt).toLocaleString() : 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Discoverable</div>
-        <div class="detail-value">${server.discoverable ? 'Yes' : 'No'}</div>
-      </div>
-    `;
-    document.getElementById('detailModal').classList.add('active');
-  });
+  openPathEditor(`servers/${serverId}`, 'Server');
 }
 
 function viewUser(uid) {
-  db.ref(`profiles/${uid}`).once('value', snap => {
-    const user = snap.val();
-    if (!user) return;
-    
-    const isOnline = user.lastSeen && (Date.now() - user.lastSeen < 60000);
-    
-    document.getElementById('modalTitle').textContent = user.username || 'User Details';
-    document.getElementById('modalBody').innerHTML = `
-      <div class="detail-row">
-        <div class="detail-label">User ID</div>
-        <div class="detail-value">${uid}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Username</div>
-        <div class="detail-value">${user.username || 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Bio</div>
-        <div class="detail-value">${user.bio || 'No bio'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Status</div>
-        <div class="detail-value"><span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${user.status || 'offline'}</span></div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Last Seen</div>
-        <div class="detail-value">${user.lastSeen ? new Date(user.lastSeen).toLocaleString() : 'Never'}</div>
-      </div>
-    `;
-    document.getElementById('detailModal').classList.add('active');
-  });
+  openPathEditor(`profiles/${uid}`, 'User');
 }
 
 function viewMessage(serverId, channelName, msgId) {
-  db.ref(`servers/${serverId}/channels_data/${channelName}/messages/${msgId}`).once('value', snap => {
-    const msg = snap.val();
-    if (!msg) return;
-    
-    document.getElementById('modalTitle').textContent = 'Message Details';
-    document.getElementById('modalBody').innerHTML = `
-      <div class="detail-row">
-        <div class="detail-label">Author</div>
-        <div class="detail-value">${msg.author || 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Text</div>
-        <div class="detail-value">${msg.text || '[No text]'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Time</div>
-        <div class="detail-value">${msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Role</div>
-        <div class="detail-value">${msg.role || 'Member'}</div>
-      </div>
-    `;
-    document.getElementById('detailModal').classList.add('active');
-  });
+  openPathEditor(`servers/${serverId}/channels_data/${channelName}/messages/${msgId}`, 'Message');
 }
 
 function viewDM(dmId, msgId) {
-  db.ref(`dms/${dmId}/messages/${msgId}`).once('value', snap => {
-    const msg = snap.val();
-    if (!msg) return;
-    
-    document.getElementById('modalTitle').textContent = 'DM Details';
-    document.getElementById('modalBody').innerHTML = `
-      <div class="detail-row">
-        <div class="detail-label">Author</div>
-        <div class="detail-value">${msg.author || 'Unknown'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Text</div>
-        <div class="detail-value">${msg.text || '[No text]'}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Time</div>
-        <div class="detail-value">${msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'Unknown'}</div>
-      </div>
-    `;
-    document.getElementById('detailModal').classList.add('active');
-  });
+  openPathEditor(`dms/${dmId}/messages/${msgId}`, 'Direct Message');
 }
 
-function deleteServer(serverId) {
+async function deleteServer(serverId) {
   if (!confirm('Are you sure you want to delete this server? This action cannot be undone.')) return;
-  db.ref(`servers/${serverId}`).remove().then(() => {
-    alert('Server deleted successfully');
-    loadServers();
-    loadStats();
-  });
+  try {
+    await removePathValue(`servers/${serverId}`);
+    showToast('Server deleted', 'success');
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
 }
 
-function deleteUser(uid) {
+async function deleteUser(uid) {
   if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
-  db.ref(`profiles/${uid}`).remove().then(() => {
-    alert('User deleted successfully');
-    loadUsers();
-    loadStats();
-  });
+  try {
+    await removePathValue(`profiles/${uid}`);
+    showToast('User deleted', 'success');
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
 }
 
-function deleteMessage(serverId, channelName, msgId) {
+async function deleteMessage(serverId, channelName, msgId) {
   if (!confirm('Delete this message?')) return;
-  db.ref(`servers/${serverId}/channels_data/${channelName}/messages/${msgId}`).remove().then(() => {
-    alert('Message deleted');
-    loadMessages();
-  });
+  try {
+    await removePathValue(`servers/${serverId}/channels_data/${channelName}/messages/${msgId}`);
+    showToast('Message deleted', 'success');
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
 }
 
-function deleteDM(dmId, msgId) {
+async function deleteDM(dmId, msgId) {
   if (!confirm('Delete this DM?')) return;
-  db.ref(`dms/${dmId}/messages/${msgId}`).remove().then(() => {
-    alert('DM deleted');
-    loadDMs();
-  });
+  try {
+    await removePathValue(`dms/${dmId}/messages/${msgId}`);
+    showToast('DM deleted', 'success');
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
 }
 
-function deleteChannel(serverId, channelName, type) {
-  if (!confirm(`Delete channel #${channelName}?`)) return;
-  const path = type === 'Text' ? `servers/${serverId}/channels/${channelName}` : `servers/${serverId}/voiceChannels/${channelName}`;
-  db.ref(path).remove().then(() => {
+async function deleteChannel(serverId, channelName, type) {
+  if (!confirm(`Delete channel "${channelName}"?`)) return;
+  try {
+    const basePath = type === 'Text'
+      ? `servers/${serverId}/channels/${channelName}`
+      : `servers/${serverId}/voiceChannels/${channelName}`;
+    await removePathValue(basePath);
     if (type === 'Text') {
-      db.ref(`servers/${serverId}/channels_data/${channelName}`).remove();
+      await db.ref(`servers/${serverId}/channels_data/${channelName}`).remove();
     }
-    alert('Channel deleted');
-    loadChannels();
-  });
+    showToast('Channel deleted', 'success');
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+async function openPathEditor(path, title = 'Edit Row') {
+  const cleanPath = normalizePath(path);
+  if (!cleanPath) {
+    showToast('Cannot open editor for root path', 'error');
+    return;
+  }
+  modalPath = cleanPath;
+
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="editor-panel">
+      <div class="editor-meta">
+        <span>Path</span>
+        <code id="modalPathLabel">${escapeHtml(formatPath(cleanPath))}</code>
+      </div>
+      <div class="editor-meta">
+        <span>Save Mode</span>
+        <select id="modalSaveMode">
+          <option value="set">set (replace value)</option>
+          <option value="update">update (merge object)</option>
+        </select>
+      </div>
+      <textarea id="modalJsonEditor" class="json-editor" spellcheck="false">Loading...</textarea>
+      <div class="editor-actions modal-actions">
+        <button class="action-btn btn-view" onclick="reloadModalPath()">Reload</button>
+        <button class="action-btn btn-view" onclick="saveModalPath()">Save</button>
+        <button class="action-btn btn-delete" onclick="deleteModalPath()">Delete</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('detailModal').classList.add('active');
+  await reloadModalPath();
+}
+
+async function reloadModalPath(options = {}) {
+  if (!modalPath) return;
+  const { silent = false } = options;
+  try {
+    const value = await readPathValue(modalPath);
+    const editor = document.getElementById('modalJsonEditor');
+    if (editor) {
+      editor.value = prettyJson(value);
+    }
+  } catch (err) {
+    if (!silent) {
+      showToast(`Failed to load row: ${err.message}`, 'error');
+    }
+  }
+}
+
+async function saveModalPath() {
+  if (!modalPath) return;
+  const editor = document.getElementById('modalJsonEditor');
+  const mode = document.getElementById('modalSaveMode')?.value || 'set';
+  if (!editor) return;
+
+  try {
+    const payload = JSON.parse(editor.value);
+    await writePathValue(modalPath, payload, mode);
+    showToast(`Saved ${formatPath(modalPath)}`, 'success');
+    await reloadModalPath();
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteModalPath() {
+  if (!modalPath) return;
+  if (!confirm(`Delete ${formatPath(modalPath)}? This cannot be undone.`)) return;
+  try {
+    await removePathValue(modalPath);
+    showToast(`Deleted ${formatPath(modalPath)}`, 'success');
+    closeModal();
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
 }
 
 function closeModal() {
+  modalPath = '';
   document.getElementById('detailModal').classList.remove('active');
 }
 
 function filterTable(tableId, searchId) {
   const input = document.getElementById(searchId);
-  const filter = input.value.toLowerCase();
   const table = document.getElementById(tableId);
+  if (!input || !table) return;
+
+  const filter = input.value.toLowerCase();
   const rows = table.getElementsByTagName('tr');
-  
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const text = row.textContent.toLowerCase();
@@ -1147,15 +2206,125 @@ function filterTable(tableId, searchId) {
   }
 }
 
-function setMessageFilter(filter) {
+function setMessageFilter(filter, buttonEl) {
   currentMessageFilter = filter;
-  document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-  event.target.classList.add('active');
-  loadMessages();
+  document.querySelectorAll('.filter-btn').forEach((btn) => btn.classList.remove('active'));
+  if (buttonEl) buttonEl.classList.add('active');
+  loadMessages().catch((err) => showToast(`Failed to load messages: ${err.message}`, 'error'));
 }
 
-// Initialize
-loadStats();
+function resolveExplorerPath(pathOverride) {
+  const pathInput = document.getElementById('dbPathInput');
+  if (pathOverride !== undefined) return normalizePath(pathOverride);
+
+  const typedPath = pathInput?.value;
+  if (typeof typedPath === 'string' && typedPath.trim() !== '') {
+    return normalizePath(typedPath);
+  }
+  if (explorerTreeState.selectedPath !== undefined) {
+    return normalizePath(explorerTreeState.selectedPath);
+  }
+  return normalizePath(explorerLoadedPath);
+}
+
+async function loadExplorerPath(pathOverride) {
+  const cleanPath = resolveExplorerPath(pathOverride);
+  const pathInput = document.getElementById('dbPathInput');
+
+  try {
+    const value = await readPathValue(cleanPath);
+    explorerLoadedPath = cleanPath;
+    explorerTreeState.selectedPath = cleanPath;
+    if (pathInput) pathInput.value = cleanPath;
+    updateExplorerSelectionUI();
+    document.getElementById('dbLoadedPath').textContent = formatPath(cleanPath);
+    document.getElementById('dbJsonEditor').value = prettyJson(value);
+
+    if (!explorerTreeInitialized) {
+      await refreshExplorerTree({ preserve: true, silent: true });
+    }
+    const parentPath = normalizePath(cleanPath.split('/').slice(0, -1).join('/'));
+    explorerTreeState.expanded.add(parentPath);
+    await ensureExplorerNodeLoaded(parentPath, { silent: true });
+    setTreeNode(cleanPath, value, { loadedChildren: cleanPath === '' });
+    renderExplorerTree();
+
+    showToast(`Loaded ${formatPath(cleanPath)}`, 'info');
+  } catch (err) {
+    showToast(`Load failed: ${err.message}`, 'error');
+  }
+}
+
+async function saveExplorerPath() {
+  const cleanPath = resolveExplorerPath();
+  if (!cleanPath) {
+    showToast('Select or type a non-root path before saving', 'error');
+    return;
+  }
+
+  const mode = document.getElementById('dbSaveMode')?.value || 'set';
+  const editor = document.getElementById('dbJsonEditor');
+  if (!editor) return;
+
+  try {
+    const payload = JSON.parse(editor.value);
+    await writePathValue(cleanPath, payload, mode);
+    explorerLoadedPath = cleanPath;
+    explorerTreeState.selectedPath = cleanPath;
+    updateExplorerSelectionUI();
+    document.getElementById('dbLoadedPath').textContent = formatPath(cleanPath);
+    showToast(`Saved ${formatPath(cleanPath)}`, 'success');
+    await refreshExplorerTree({ preserve: true, silent: true });
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteExplorerPath() {
+  const cleanPath = resolveExplorerPath();
+  if (!cleanPath) {
+    showToast('Select or type a path to delete', 'error');
+    return;
+  }
+
+  if (!confirm(`Delete ${formatPath(cleanPath)}? This cannot be undone.`)) return;
+  try {
+    await removePathValue(cleanPath);
+    explorerLoadedPath = cleanPath;
+    document.getElementById('dbLoadedPath').textContent = formatPath(cleanPath);
+    document.getElementById('dbJsonEditor').value = 'null';
+    showToast(`Deleted ${formatPath(cleanPath)}`, 'success');
+    await refreshExplorerTree({ preserve: true, silent: true });
+    await refreshAfterMutation();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+document.getElementById('detailModal').addEventListener('click', (event) => {
+  if (event.target.id === 'detailModal') {
+    closeModal();
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  stopLiveSync();
+});
+
+const dbPathInput = document.getElementById('dbPathInput');
+if (dbPathInput) {
+  dbPathInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      loadExplorerPath();
+    }
+  });
+}
+updateExplorerSelectionUI();
+
+startLiveSync();
+refreshAllSections().catch((err) => showToast(`Initial load failed: ${err.message}`, 'error'));
 </script>
 </body>
 </html>

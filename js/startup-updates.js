@@ -1,22 +1,6 @@
-const STARTUP_UPDATES_KEY = 'schoolcord_startup_updates_hidden_v1';
 let startupUpdatesCloseCallback = null;
 
-function shouldShowStartupUpdates() {
-  try {
-    return localStorage.getItem(STARTUP_UPDATES_KEY) !== '1';
-  } catch (e) {
-    return true;
-  }
-}
-
-function dismissStartupUpdates(neverShowAgain = false) {
-  if (neverShowAgain) {
-    try {
-      localStorage.setItem(STARTUP_UPDATES_KEY, '1');
-    } catch (e) {
-      // Ignore storage failures and continue closing.
-    }
-  }
+function dismissStartupUpdates() {
   if (typeof hideModal === 'function') {
     hideModal('startupUpdates');
   }
@@ -28,7 +12,6 @@ function dismissStartupUpdates(neverShowAgain = false) {
 }
 
 function showStartupUpdates(force = false) {
-  if (!force && !shouldShowStartupUpdates()) return false;
   if (typeof showModal === 'function') {
     showModal('startupUpdates');
     return true;

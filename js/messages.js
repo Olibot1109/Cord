@@ -1965,6 +1965,7 @@ function loadMessages() {
       hasMsg: !!msg,
       msgUid: msg?.uid || null,
       hasText: typeof msg?.text === 'string',
+      hasImage: !!msg?.image,
       hasPoll: !!msg?.poll,
       hasVoice: !!msg?.voice
     });

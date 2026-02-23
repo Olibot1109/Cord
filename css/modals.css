@@ -159,6 +159,88 @@
 
 .modal-btn.danger:hover { background: #d01b20; }
 
+#settingsModal .modal-content {
+  width: min(760px, 94vw);
+  max-width: 760px;
+}
+
+#settingsModal .modal-body {
+  max-height: calc(80vh - 150px);
+  overflow: auto;
+}
+
+.client-logs-group {
+  margin-top: 18px;
+}
+
+.client-logs-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.client-logs-filter {
+  padding: 10px;
+}
+
+.client-logs-btn {
+  border: 1px solid #404249;
+  background: #2b2d31;
+  color: #dbdee1;
+  border-radius: 4px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.client-logs-btn:hover {
+  background: #35373c;
+  border-color: #4a4d56;
+}
+
+.client-logs-btn.danger {
+  color: #ff8b8b;
+  border-color: #6f2d33;
+}
+
+.client-logs-btn.danger:hover {
+  background: #4a2226;
+  border-color: #8e3a41;
+}
+
+.client-logs-output {
+  margin: 0;
+  background: #1a1b1e;
+  border: 1px solid #111214;
+  border-radius: 6px;
+  color: #d7dbe0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 10px;
+  min-height: 160px;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.client-logs-meta {
+  margin-top: 6px;
+  color: #949ba4;
+  font-size: 12px;
+}
+
+@media (max-width: 680px) {
+  .client-logs-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* Invite Code */
 .invite-section {
   background: #2b2d31;
@@ -259,4 +341,3 @@
   background: #1e1f22;
   margin: 8px 0;
 }
-

@@ -1,2 +1,4 @@
 node_modules
 data/db.json
+backend/cord_local.db
+backend/__pycache__

@@ -4,6 +4,10 @@ function showModal(modalName) {
 
   modal.classList.add('active');
 
+  if (modalName === 'settings' && typeof initClientLogsPanel === 'function') {
+    initClientLogsPanel();
+  }
+
   if (modalName === 'invite') {
     if (isOnboarding) {
       forceJoinModal = true;
@@ -141,6 +145,9 @@ function closeInviteModal() {
 function hideModal(modalName) {
   const modal = document.getElementById(`${modalName}Modal`);
   if (modal) modal.classList.remove('active');
+  if (modalName === 'settings' && typeof teardownClientLogsPanel === 'function') {
+    teardownClientLogsPanel();
+  }
 }
 
 function showServerMenu(event) {

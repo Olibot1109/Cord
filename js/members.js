@@ -1,3 +1,185 @@
+const CLIENT_LOG_LEVEL_PRIORITY = {
+  all: 0,
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40
+};
+
+let clientLogsFilterLevel = 'all';
+let clientLogsUnsubscribe = null;
+let clientLogsRenderTimer = null;
+let clientLogsFollowTail = true;
+
+function getClientLogApi() {
+  return window.__cordClientLogApi || null;
+}
+
+function normalizeClientLogLevel(level) {
+  if (level === 'log') return 'info';
+  if (level === 'warning') return 'warn';
+  return String(level || 'info').toLowerCase();
+}
+
+function clientLogLevelWeight(level) {
+  return CLIENT_LOG_LEVEL_PRIORITY[normalizeClientLogLevel(level)] || CLIENT_LOG_LEVEL_PRIORITY.info;
+}
+
+function shouldShowClientLog(entry) {
+  if (!entry) return false;
+  if (clientLogsFilterLevel === 'all') return true;
+  const minLevel = CLIENT_LOG_LEVEL_PRIORITY[clientLogsFilterLevel] || CLIENT_LOG_LEVEL_PRIORITY.info;
+  return clientLogLevelWeight(entry.level) >= minLevel;
+}
+
+function formatClientLogTime(ts) {
+  const date = new Date(Number(ts) || Date.now());
+  const base = date.toLocaleTimeString([], { hour12: false });
+  const ms = String(date.getMilliseconds()).padStart(3, '0');
+  return `${base}.${ms}`;
+}
+
+function shortenClientLogMessage(message, maxLength = 460) {
+  const text = String(message || '');
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function settingsModalIsOpen() {
+  const modal = document.getElementById('settingsModal');
+  return !!(modal && modal.classList.contains('active'));
+}
+
+function renderClientLogsPanel() {
+  const output = document.getElementById('clientLogsOutput');
+  const meta = document.getElementById('clientLogsMeta');
+  if (!output) return;
+
+  const api = getClientLogApi();
+  if (!api) {
+    output.textContent = 'Client log capture is unavailable in this build.';
+    if (meta) meta.textContent = 'No log API found.';
+    return;
+  }
+
+  const allLogs = api.getEntries();
+  const filtered = allLogs.filter(shouldShowClientLog);
+  const visible = filtered.slice(-220);
+
+  const wasNearBottom = (output.scrollHeight - output.scrollTop - output.clientHeight) <= 20;
+  if (visible.length === 0) {
+    output.textContent = 'No logs for the selected filter yet.';
+  } else {
+    output.textContent = visible.map((entry) => {
+      const level = normalizeClientLogLevel(entry.level).toUpperCase().padEnd(5, ' ');
+      return `[${formatClientLogTime(entry.ts)}] ${level} ${shortenClientLogMessage(entry.message)}`;
+    }).join('\n');
+  }
+
+  if (meta) {
+    meta.textContent = `Showing ${visible.length}/${filtered.length} filtered logs (${allLogs.length} total, cap ${api.maxEntries}).`;
+  }
+
+  if (clientLogsFollowTail || wasNearBottom) {
+    output.scrollTop = output.scrollHeight;
+  }
+}
+
+function scheduleClientLogsRender() {
+  if (clientLogsRenderTimer) return;
+  clientLogsRenderTimer = setTimeout(() => {
+    clientLogsRenderTimer = null;
+    renderClientLogsPanel();
+  }, 120);
+}
+
+function handleClientLogsScroll(event) {
+  const output = event.target;
+  const distanceFromBottom = output.scrollHeight - output.scrollTop - output.clientHeight;
+  clientLogsFollowTail = distanceFromBottom <= 24;
+}
+
+function initClientLogsPanel() {
+  const filterSelect = document.getElementById('clientLogsLevelFilter');
+  const output = document.getElementById('clientLogsOutput');
+  if (filterSelect) {
+    filterSelect.value = clientLogsFilterLevel;
+  }
+
+  if (output && output.dataset.scrollBound !== '1') {
+    output.dataset.scrollBound = '1';
+    output.addEventListener('scroll', handleClientLogsScroll);
+  }
+
+  if (clientLogsUnsubscribe) {
+    clientLogsUnsubscribe();
+    clientLogsUnsubscribe = null;
+  }
+
+  const api = getClientLogApi();
+  if (api) {
+    clientLogsUnsubscribe = api.subscribe(() => {
+      if (!settingsModalIsOpen()) return;
+      scheduleClientLogsRender();
+    });
+  }
+
+  clientLogsFollowTail = true;
+  refreshClientLogsPanel();
+}
+
+function teardownClientLogsPanel() {
+  if (clientLogsUnsubscribe) {
+    clientLogsUnsubscribe();
+    clientLogsUnsubscribe = null;
+  }
+  if (clientLogsRenderTimer) {
+    clearTimeout(clientLogsRenderTimer);
+    clientLogsRenderTimer = null;
+  }
+}
+
+function refreshClientLogsPanel() {
+  renderClientLogsPanel();
+}
+
+function setClientLogsFilter(level) {
+  const normalized = String(level || 'all').toLowerCase();
+  clientLogsFilterLevel = CLIENT_LOG_LEVEL_PRIORITY[normalized] !== undefined ? normalized : 'all';
+  clientLogsFollowTail = true;
+  renderClientLogsPanel();
+}
+
+function clearClientLogs() {
+  const api = getClientLogApi();
+  if (!api) {
+    showToast('Client logs are unavailable', 'error');
+    return;
+  }
+  api.clear();
+  clientLogsFollowTail = true;
+  renderClientLogsPanel();
+  showToast('Client logs cleared', 'success');
+}
+
+function copyClientLogs() {
+  const output = document.getElementById('clientLogsOutput');
+  const text = output ? output.textContent.trim() : '';
+  if (!text) {
+    showToast('No logs to copy', 'error');
+    return;
+  }
+  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+    showToast('Clipboard API not available in this browser', 'error');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Client logs copied', 'success');
+  }).catch((error) => {
+    showToast('Failed to copy logs: ' + error.message, 'error');
+  });
+}
+
 function saveSettings() {
   const usernameInput = document.getElementById('usernameInput');
   const statusSelect = document.getElementById('statusSelect');

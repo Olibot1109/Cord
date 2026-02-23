@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Schoolcord</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<script src="js/supabase-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase-realtime-bridge.js"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-DX01P3PE8W"></script>
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/sidebar.css">
@@ -274,6 +274,23 @@
           <option value="offline">Invisible</option>
         </select>
       </div>
+      <div class="modal-input-group client-logs-group">
+        <label class="modal-label">Client Logs</label>
+        <div class="client-logs-toolbar">
+          <select class="modal-input client-logs-filter" id="clientLogsLevelFilter" onchange="setClientLogsFilter(this.value)">
+            <option value="all">All Levels</option>
+            <option value="error">Errors</option>
+            <option value="warn">Warnings+</option>
+            <option value="info">Info+</option>
+            <option value="debug">Debug+</option>
+          </select>
+          <button class="client-logs-btn" type="button" onclick="refreshClientLogsPanel()">Refresh</button>
+          <button class="client-logs-btn" type="button" onclick="copyClientLogs()">Copy</button>
+          <button class="client-logs-btn danger" type="button" onclick="clearClientLogs()">Clear</button>
+        </div>
+        <pre class="client-logs-output" id="clientLogsOutput">Open settings to load client logs...</pre>
+        <div class="client-logs-meta" id="clientLogsMeta">Logs from this browser tab only.</div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="modal-btn secondary" onclick="hideModal('settings')">Cancel</button>
@@ -463,14 +480,8 @@
     </div>
     <div class="modal-body">
       <div style="display:flex;flex-direction:column;gap:10px;color:#dcddde;font-size:14px;line-height:1.4;">
-        <div><strong>Messaging:</strong> reply to messages, mentions + unread mention badges, slash command UI, and command autocomplete.</div>
-        <div><strong>Commands:</strong> <code>/ai</code>, <code>/ping</code>, <code>/me</code>, <code>/shrug</code>, <code>/roll</code>, <code>/mc</code>, <code>/help</code>.</div>
-        <div><strong>Embeds:</strong> URL embeds, server invite embeds with join button + server info, and image click-to-view.</div>
-        <div><strong>Polls:</strong> create polls, end polls, and view exactly who voted per option.</div>
-        <div><strong>Voice:</strong> voice messages with custom player UI (play/pause, bars, speed, volume), plus DM/VC call UI improvements.</div>
-        <div><strong>Profiles:</strong> fixed PFP persistence/loading so avatars now stick correctly across refresh, messages, DMs, and member list.</div>
-        <div style="color:#23a559;"><strong>Im Going Broke:</strong> I'm now paying £7/month for this.</div>
-        <div><strong>Server/Data:</strong> duplicate/broken server cleanup, member-list-based server membership checks, and profile status/last-seen handling improvements.</div>
+        nothing mutch we only now just have 4tb of fucking server storge :sob soooo basically we can growwwww
+        ngl i prob will just use 2tb of it to sotre cube yk yk
       </div>
     </div>
     <div class="modal-footer">
